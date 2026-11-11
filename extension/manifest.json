@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "听课搭子 · 听悟定时助手",
+  "version": "0.1.0",
+  "description": "工作日课前启动通义听悟，下课提醒本人手动结束。默认暂停。",
+  "minimum_chrome_version": "120",
+  "permissions": ["alarms", "storage", "notifications"],
+  "host_permissions": ["https://tingwu.aliyun.com/*"],
+  "background": {"service_worker": "background.js", "type": "module"},
+  "action": {"default_title": "打开听课搭子"},
+  "options_page": "index.html",
+  "icons": {"128": "icon.png"},
+  "content_scripts": [
+    {"matches": ["https://tingwu.aliyun.com/*"], "js": ["microphone.js"], "run_at": "document_start", "world": "MAIN"},
+    {"matches": ["https://tingwu.aliyun.com/*"], "js": ["content.js"], "run_at": "document_start"}
+  ]
+}

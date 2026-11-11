@@ -1,0 +1,41 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {mkdtemp,rm,readFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const dir=await mkdtemp(path.join(tmpdir(),'tingwu-desktop-test-'));
+const child=spawn(process.execPath,[path.join(root,'desktop/server.mjs')],{env:{...process.env,TINGWU_DATA_DIR:dir,TINGWU_PORT:"18767"},stdio:'pipe'});
+let browser;
+try {
+ await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('exit',()=>reject(Error('test server exited')));setTimeout(()=>reject(Error('test server timeout')),5000).unref();});
+ const url='http://127.0.0.1:18767';
+ const s=await (await fetch(url+'/api/status')).json();
+ assert.equal(s.settings.noon,'12:10');assert.equal(s.settings.evening,'18:10');assert.equal(s.settings.enabled,false);
+ assert.equal((await fetch(url+'/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
+ browser=await chromium.launch({executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
+ const page=await browser.newPage({viewport:{width:1400,height:1300}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(url);await page.waitForFunction(()=>document.querySelector('#noon').value==='12:10');
+ assert.equal(await page.locator('#evening').inputValue(),'18:10');
+ await page.getByRole('button',{name:'保存时间'}).click();await page.waitForFunction(()=>!document.querySelector('#toast').hidden);
+ assert.match(await page.locator('#toast').textContent(),/暂停/);
+ await page.waitForTimeout(100);assert.deepEqual(errors,[]);
+ await page.locator('#toast').evaluate(e=>e.hidden=true);
+ await page.screenshot({path:path.join(root,'preview/桌面版主界面.png'),fullPage:true});
+ await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ // Exercise the desktop page bridge on simulated Tingwu markup. No real microphone calls.
+ await page.route('https://tingwu.aliyun.com/**',r=>r.fulfill({contentType:'text/html; charset=utf-8',body:'<html><body><button>新建</button><button hidden id="record">开启实时记录</button></body></html>'}));
+ await page.goto('https://tingwu.aliyun.com/home');
+ await page.addScriptTag({path:path.join(root,'desktop/page-agent.js')});
+ await page.evaluate(()=>{window.clicks=0;document.querySelector('button').onmouseover=()=>document.querySelector('#record').hidden=false;document.querySelector('#record').onclick=()=>{window.clicks++;document.body.insertAdjacentHTML('beforeend','<button>结束录音</button>');};});
+ assert.equal(await page.evaluate(()=>window.__tingwuClassDesktopV2.step('test').action),'menu');
+ assert.equal(await page.evaluate(()=>window.__tingwuClassDesktopV2.step('test').action),'clicked');
+ assert.equal(await page.evaluate(()=>window.__tingwuClassDesktopV2.step('test').action),'ongoing');
+ assert.equal(await page.evaluate(()=>window.clicks),1);
+ await page.evaluate(()=>document.body.innerHTML='<p>短信登录</p>');
+ assert.equal(await page.evaluate(()=>window.__tingwuClassDesktopV2.step('login').action),'login-required');
+ assert.equal(JSON.parse(await readFile(path.join(dir,'state.json'),'utf8')).settings.enabled,false);
+ console.log('PASS: desktop service, saved 12:10/18:10 settings, request protection, desktop/mobile UI, start-click simulation, existing recording guard, login-expiry detection.');
+}finally{if(browser)await browser.close();child.kill();await new Promise(r=>child.once('exit',r));await rm(dir,{recursive:true,force:true});}

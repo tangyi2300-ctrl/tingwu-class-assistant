@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>听课搭子 · 听悟定时助手</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f5ef;color:#253d34;font:15px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}main{max-width:1120px;margin:auto;padding:30px 38px}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:54px}.brand{color:inherit;text-decoration:none;font-size:20px;font-weight:700;display:flex;align-items:center;gap:10px}.brand-icon{color:#367a61;font-size:30px}.brand small{font-size:9px;letter-spacing:2px;font-weight:500;margin-left:10px;color:#7e8a7f}.review{font-size:12px;background:#e9ebe2;border-radius:99px;padding:8px 13px}.hero{display:flex;justify-content:space-between;align-items:center;margin-bottom:38px}.eyebrow{font-size:12px;letter-spacing:2px;color:#6e8274;margin:0 0 18px}h1{font-size:52px;line-height:1.22;letter-spacing:-2px;font-weight:600;margin:0 0 22px}.intro{color:#718075;line-height:1.9;font-size:15px}.sound-art{width:330px;height:230px;border-radius:50%;background:radial-gradient(ellipse,#e1e7d6,transparent 70%);display:flex;align-items:center;justify-content:center;gap:11px;position:relative;margin-right:30px;padding-bottom:30px}.sound-art span{width:13px;border-radius:20px;background:#42775d;height:48px}.sound-art span:nth-child(2n){height:91px;background:#829a72}.sound-art span:nth-child(3n){height:126px;background:#d2a05d}.sound-art span:nth-child(4){height:155px;background:#315b49}.sound-art div{position:absolute;bottom:5px;font-size:12px;letter-spacing:3px;color:#7e8c77}.status-bar{display:flex;align-items:center;justify-content:space-between;background:#e8ecdf;border:1px solid #dce1d2;border-radius:17px;padding:21px 25px;margin-bottom:24px}.dot{display:inline-block;width:9px;height:9px;background:#a2a99b;border-radius:100%;margin-right:10px}.dot.on{background:#3c8663}.status-bar strong{font-size:15px}.status-bar p{margin:7px 0 0 22px;font-size:12px;color:#778273}button{font:inherit;font-size:13px;padding:11px 18px;border-radius:9px;cursor:pointer;transition:background .15s}button:disabled{opacity:.5;cursor:wait}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #c99a53;outline-offset:3px}.primary{background:#285c47;border:1px solid #285c47;color:white}.primary:hover{background:#1e4938}.secondary{background:#fffef9;border:1px solid #d9dfd3;color:#31503f}.secondary:hover{background:#eef1e6}.grid{display:grid;grid-template-columns:1.6fr 1fr;gap:22px}.card{border:1px solid #e3e5da;border-radius:18px;background:#fffef9;padding:25px}.section-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}h2{font-size:17px;margin:0;font-weight:600}.section-heading>span{font-size:11px;color:#84907f}.session{padding-top:28px}.session+.session{border-top:1px solid #edeee6;margin-top:23px}.session-label{display:flex;align-items:center;gap:10px;font-size:10px;color:#9a947a;letter-spacing:1px}.session-label b{font-size:14px;letter-spacing:0;color:#4f6352}.session-label small{margin-left:auto;font-size:11px;color:#899380;letter-spacing:0}.time-row{display:flex;align-items:end;gap:23px;margin-top:16px}.time-row label{flex:1;color:#89917e;font-size:11px;display:block}.time-row i{margin-bottom:12px;color:#c6cdbb;font-style:normal}input{display:block;width:100%;border:1px solid #e5e7dd;background:#f7f8f0;color:#294c3a;border-radius:8px;padding:9px 12px;margin-top:8px;font:500 26px ui-monospace,monospace}.save-row{margin-top:26px;display:flex;justify-content:space-between;align-items:center;gap:10px}.save-row span{font-size:10px;color:#89917e}.setup .eyebrow{font-size:10px;margin-bottom:10px}.setup ol{list-style:none;padding:0;counter-reset:step;margin:24px 0}.setup li{counter-increment:step;position:relative;padding-left:34px;margin-bottom:22px}.setup li:before{content:counter(step);position:absolute;left:0;top:1px;width:22px;height:22px;border:1px solid #e1e6d7;border-radius:50%;text-align:center;line-height:21px;font-size:11px;color:#5e7961}.setup li b{font-size:12px;font-weight:600}.setup li span{display:block;font-size:11px;color:#8a9481;margin-top:7px;line-height:1.5}.wide{width:100%}.hint{font-size:10px;color:#8b9380;line-height:1.8;margin:14px 0 0}.test-card{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-top:22px}.test-card h2{font-size:14px}.test-card p{font-size:11px;color:#89917e;margin-bottom:0}.test-buttons{display:flex;gap:8px}.log-section{margin-top:30px}.log-section h2{font-size:13px}#logs{list-style:none;padding:0;font-size:11px;color:#8b9483;line-height:2}#logs li{border-bottom:1px solid #e6e9de;padding:7px 0}#logs .warning{color:#a2682f}footer{display:flex;justify-content:space-between;gap:12px;font-size:10px;color:#939b8a;margin-top:30px;line-height:1.8}#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#294d3c;color:white;border-radius:10px;padding:14px 22px;box-shadow:0 5px 25px #213e3422;font-size:13px;z-index:20}#notice{max-width:500px;margin:35px auto;padding:20px 34px;text-align:center}#notice h1{font-size:33px;letter-spacing:-1px}#notice p:not(.eyebrow){color:#7c8875;font-size:14px;line-height:1.9;margin:23px 0}.notice-icon{font-size:46px;color:#6e8968;margin-bottom:18px}#notice button{margin-top:10px}#notice small{display:block;font-size:10px;color:#98a08f;margin-top:18px}[hidden]{display:none!important}@media(max-width:820px){main{padding:24px}.brand small{display:none}.hero h1{font-size:40px}.sound-art{width:200px;margin:0}.grid{grid-template-columns:1fr}.test-card{align-items:start;flex-direction:column}footer{flex-direction:column}}@media(max-width:500px){header{margin-bottom:30px}.hero h1{font-size:35px}.sound-art{display:none}.status-bar{padding:18px}.status-bar strong{font-size:12px}.section-heading{align-items:start;flex-direction:column}.card{padding:20px}.time-row{gap:10px}input{font-size:23px}.save-row{align-items:start}.review{font-size:10px}}
+</style></head>
+<body><main id="dashboard">
+<header><a class="brand" href="听课搭子-界面预览.html"><span class="brand-icon">◉</span> 听课搭子 <small>CLASS COMPANION</small></a><span class="review">本地检查版 · v0.1</span></header>
+<section class="hero"><div><p class="eyebrow">专心听课，准备工作交给我</p><h1>上课前，<br>让听悟准备好。</h1><p class="intro">周一至周五，课前尝试自动启动麦克风录音。<br>下课时提醒你，由你亲自结束每一次记录。</p></div><div class="sound-art" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><div>为每一堂课，留一份记录</div></div></section>
+<section class="status-bar"><div><span id="status-dot" class="dot"></span><strong id="status-title">计划已暂停，等待你的检查</strong><p id="next">检查版不会自动开始录音</p></div><button id="toggle" class="primary">启用课表</button></section>
+<div class="grid"><section class="card"><div class="section-heading"><h2>我的上课计划</h2><span>周一至周五 · 北京时间</span></div>
+<form id="schedule-form"><div class="session"><span class="session-label">AM <b>上午课堂</b><small>10:00 — 12:00</small></span><div class="time-row"><label>课前自动启动<input id="morning" type="time" required value="09:55"></label><i>→</i><label>提醒手动结束<input id="noon" type="time" required value="12:10"></label></div></div>
+<div class="session"><span class="session-label">PM <b>下午课堂</b><small>14:00 — 18:00</small></span><div class="time-row"><label>课前自动启动<input id="afternoon" type="time" required value="13:55"></label><i>→</i><label>询问并提醒结束<input id="evening" type="time" required value="18:10"></label></div></div>
+<div class="save-row"><span>周末休息 · 结束录音始终由你操作</span><button class="secondary" type="submit">保存时间</button></div></form></section>
+<section class="card setup"><p class="eyebrow">第一次使用</p><h2>准备好了，再启用</h2><ol><li><b>登录通义听悟</b><span>在 Chrome 中保持登录状态。</span></li><li><b>允许使用电脑麦克风</b><span>先手动录音一次，确认声音正常。</span></li><li><b>测试启动，再启用课表</b><span>请核对听悟计时和转写是否出现。</span></li></ol><button id="open" class="secondary wide">打开通义听悟 ↗</button><p class="hint">电脑须保持唤醒，Chrome 须保持运行。休眠或退出浏览器时，无法准时启动。</p></section></div>
+<section class="card test-card"><div><h2>先试一试，再放心上课</h2><p>提醒测试不会停止录音。启动测试会尝试开启真实麦克风录音。</p></div><div class="test-buttons"><button id="test-reminder" class="secondary">预览下课提醒</button><button id="test-start" class="secondary">测试启动录音</button></div></section>
+<section class="log-section"><div class="section-heading"><h2>运行记录</h2><span>只保存在这台电脑</span></div><ul id="logs"><li>还没有运行记录。检查通过后，再启用课表。</li></ul></section>
+<footer>听课搭子不读取或保存音频；录音由通义听悟处理。<span>真实听悟录音流程尚待安装后联调验证。</span></footer>
+</main><section id="notice" hidden><div class="notice-icon">◷</div><p class="eyebrow">听课搭子 · 温柔提醒</p><h1 id="notice-title">下课了，<br>现在结束录音吗？</h1><p id="notice-text">请在通义听悟中亲自点击结束录音。<br>如果还在上课，就继续记录吧。</p><button id="go-recording" class="primary wide">前往听悟，手动结束</button><button id="dismiss" class="secondary wide">还在上课，继续录制</button><small>这两个按钮都不会替你停止录音。</small></section><div id="toast" role="status" hidden></div><script type="module">const DEFAULTS = Object.freeze({enabled: false, morning: '09:55', noon: '12:10', afternoon: '13:55', evening: '18:10'});
+const LABELS = {morning: '上午课前', noon: '中午下课', afternoon: '下午课前', evening: '下午下课'};
+function validate(value) {
+  const s = {...DEFAULTS, ...value};
+  const times = ['morning', 'noon', 'afternoon', 'evening'].map(k => {
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(s[k])) throw Error('请填写有效的时间');
+    return s[k];
+  });
+  if (!(times[0] < times[1] && times[1] < times[2] && times[2] < times[3])) throw Error('请按上午开始、中午提醒、下午开始、傍晚提醒的顺序设置时间');
+  if (times[0] >= '10:00' || times[2] >= '14:00') throw Error('课前时间须早于 10:00 和 14:00');
+  if (typeof s.enabled !== 'boolean') throw Error('启用状态无效');
+  return Object.fromEntries(Object.keys(DEFAULTS).map(k => [k, s[k]]));
+}
+function clockParts(now = new Date()) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23'}).formatToParts(now).map(x => [x.type,x.value]));
+  const date = `${p.year}-${p.month}-${p.day}`;
+  return {date, minute: Number(p.hour)*60+Number(p.minute), weekday: new Date(`${date}T12:00:00+08:00`).getUTCDay()};
+}
+const minutes = t => Number(t.slice(0,2))*60 + Number(t.slice(3));
+function dueEvents(settings, completed = {}, now = new Date()) {
+  if (!settings.enabled) return [];
+  const p = clockParts(now);
+  if ([0,6].includes(p.weekday)) return [];
+  return Object.keys(LABELS).flatMap(kind => {
+    const delta = p.minute - minutes(settings[kind]);
+    const id = `${p.date}:${kind}`;
+    // Wake-ups more than five minutes late never unexpectedly start a recording.
+    return delta >= 0 && delta <= 5 && !completed[id] ? [{kind, id, date:p.date}] : [];
+  });
+}
+function nextEvent(settings, now = new Date()) {
+  const p = clockParts(now);
+  for(let day = 0; day < 8; day++) {
+    const base = new Date(`${p.date}T00:00:00+08:00`).getTime() + day*86400000;
+    if ([0,6].includes(new Date(base+12*3600000).getUTCDay())) continue;
+    for(const kind of Object.keys(LABELS)) {
+      const when = base + minutes(settings[kind])*60000;
+      if(when > now.getTime()) return {kind, when};
+    }
+  }
+}
+
+const live = Boolean(globalThis.chrome?.runtime?.id), $=s=>document.querySelector(s);
+let settings={...DEFAULTS}, toastTimer;
+function toast(text) {$('#toast').textContent=text;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,5500);}
+function render() {
+  for(const k of ['morning','noon','afternoon','evening']) $('#'+k).value=settings[k];
+  $('#status-title').textContent=settings.enabled?'课表已启用，课前自动检查':'计划已暂停，等待你的检查';
+  $('#status-dot').classList.toggle('on',settings.enabled);
+  $('#toggle').textContent=settings.enabled?'暂停课表':'启用课表';
+  const next=nextEvent(settings);
+  $('#next').textContent=settings.enabled?`下一次：${new Date(next.when).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'})} · ${LABELS[next.kind]}`:'检查版不会自动开始录音';
+}
+async function send(type,data={}) {
+  if(!live) {toast('这是界面预览。安装扩展并通过检查后，才可执行真实操作。');return false;}
+  const result=await chrome.runtime.sendMessage({type,...data});
+  if(!result?.ok) throw Error(result?.error || '操作未完成');return true;
+}
+async function save(enabled=settings.enabled) {
+  const next=validate({...settings,enabled,...Object.fromEntries(['morning','noon','afternoon','evening'].map(k=>[k,$('#'+k).value]))});
+  if(!await send('save',{settings:next})) return;
+  settings=next;render();toast(enabled?'已保存并启用课表':'已保存，课表处于暂停状态');
+}
+function on(selector,fn) {$(selector).addEventListener('click',async()=>{const b=$(selector);b.disabled=true;try{await fn();}catch(e){toast(e.message);}finally{b.disabled=false;}});}
+$('#schedule-form').addEventListener('submit',async e=>{e.preventDefault();try{await save();}catch(e){toast(e.message);}});
+on('#toggle',async()=>{
+  if(!settings.enabled && live && !confirm('启用后，工作日课前将尝试启动真实麦克风录音。请确认已登录听悟、允许麦克风并完成启动测试。现在启用吗？'))return;
+  await save(!settings.enabled);
+});
+on('#open',()=>send('open'));
+on('#test-start',async()=>{
+  if(!live) return send('testStart');
+  if(confirm('现在尝试启动真实麦克风录音？测试结束后，请你本人在通义听悟中手动结束。')) {
+    toast('正在检查听悟，请等待约 30 秒');await send('testStart');await loadLogs();
+  }
+});
+on('#test-reminder',async()=>{
+  if(live) await send('testReminder');
+  else window.open('听课搭子-界面预览.html?notice=end','tingwu-reminder-preview','width=540,height=560');
+});
+const notice=new URLSearchParams(location.search).get('notice');
+if(notice) {
+  $('#dashboard').hidden=true;$('#notice').hidden=false;
+  if(notice==='failed') {
+    $('#notice-title').textContent='录音还需要你确认';$('#notice-text').textContent='工具尚未确认录音启动。请检查登录状态、麦克风权限，以及听悟的计时和转写。';
+    $('#go-recording').textContent='前往听悟，检查并手动开始';$('#dismiss').textContent='稍后处理';$('#notice small').textContent='打开网页不代表录音已经开始。';
+  }
+}
+on('#go-recording',()=>send('open'));
+on('#dismiss',()=>{if(live) window.close();else location.href='听课搭子-界面预览.html';});
+async function loadLogs() {
+  if(!live) return;
+  const {logs=[]}=await chrome.storage.local.get('logs');
+  if(!logs.length)return;
+  $('#logs').replaceChildren(...logs.slice(0,8).map(item=>{
+    const li=document.createElement('li');li.className=item.level;
+    li.textContent=`${new Date(item.time).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}　${item.message}`;return li;
+  }));
+}
+if(live) {settings=validate((await chrome.storage.local.get('settings')).settings || DEFAULTS);chrome.storage.onChanged.addListener(()=>loadLogs());await loadLogs();}
+render();
+</script></body></html>

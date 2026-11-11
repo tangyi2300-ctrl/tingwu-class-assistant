@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {DEFAULTS} from '../extension/schedule.js';
+import {runnableEvents,preflightEvents,startDeadline} from '../desktop/scheduler.mjs';
+const settings={...DEFAULTS,enabled:true};
+const time=s=>new Date('2026-11-12T'+s+'+08:00');
+test('tomorrow 09:50 preflight and 09:55 start',()=>{assert.equal(preflightEvents(settings,{},time('09:50:00'))[0].kind,'morning');assert.equal(runnableEvents(settings,{}, {},time('09:55:00'))[0].kind,'morning');});
+test('failed starts retry once a minute; completed starts do not repeat',()=>{const id='2026-11-12:morning';const a={[id]:time('09:55:00').getTime()};assert.equal(runnableEvents(settings,{},a,time('09:55:40')).length,0);assert.equal(runnableEvents(settings,{},a,time('09:56:00')).length,1);assert.equal(runnableEvents(settings,{[id]:1},a,time('09:56:00')).length,0);});
+test('no new recording may begin at or after class start',()=>{assert.equal(runnableEvents(settings,{}, {},time('09:59:50')).length,0);assert.equal(runnableEvents(settings,{}, {},time('10:00:00')).length,0);assert.equal(runnableEvents(settings,{}, {},time('13:59:50')).length,0);});
+test('end reminders still fire at 12:10 and 18:10',()=>{assert.equal(runnableEvents(settings,{}, {},time('12:10:00'))[0].kind,'noon');assert.equal(runnableEvents(settings,{}, {},time('18:10:00'))[0].kind,'evening');});
+test('preflight runs once and paused plans do nothing',()=>{const id='2026-11-12:preflight:morning';assert.deepEqual(preflightEvents(settings,{[id]:1},time('09:51:00')),[]);assert.deepEqual(preflightEvents(DEFAULTS,{},time('09:50:00')),[]);assert.deepEqual(runnableEvents(DEFAULTS,{}, {},time('09:55:00')),[]);});

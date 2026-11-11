@@ -1,0 +1,15 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {DEFAULTS, validate, dueEvents, nextEvent, clockParts} from '../extension/schedule.js';
+const s={...DEFAULTS,enabled:true};
+const date=t=>new Date(t+'+08:00');
+test('default paused: no scheduled action',()=>assert.deepEqual(dueEvents(DEFAULTS,{},date('2026-11-11T09:55:00')),[]));
+test('weekday four events and their exact times',()=>{for(const [kind,time] of [['morning','09:55'],['noon','12:10'],['afternoon','13:55'],['evening','18:10']]) assert.equal(dueEvents(s,{},date('2026-11-11T'+time+':00'))[0].kind,kind);});
+test('does not start before schedule',()=>assert.equal(dueEvents(s,{},date('2026-11-11T09:54:59')).length,0));
+test('weekends never execute',()=>{for(const d of ['14','15'])assert.equal(dueEvents(s,{},date(`2026-11-${d}T09:55:00`)).length,0);});
+test('late wakeup does not start a recording',()=>assert.equal(dueEvents(s,{},date('2026-11-11T10:01:00')).length,0));
+test('within five-minute grace period runs once',()=>{const now=date('2026-11-11T09:59:00');const [event]=dueEvents(s,{},now);assert.equal(dueEvents(s,{[event.id]:1},now).length,0);});
+test('fixed Shanghai time even with UTC inputs',()=>{assert.equal(clockParts(new Date('2026-11-11T01:55:00Z')).minute,595);assert.equal(dueEvents(s,{},new Date('2026-11-11T01:55:00Z'))[0].kind,'morning');});
+test('Friday evening rolls over to Monday',()=>assert.equal(new Date(nextEvent(s,date('2026-11-13T18:11:00')).when).toISOString(),'2026-11-16T01:55:00.000Z'));
+test('rejects malformed, out-of-order and after-class-start times',()=>{for(const patch of [{morning:'25:00'},{afternoon:'10:00'},{morning:'10:00'},{afternoon:'14:00'},{evening:'12:01'},{enabled:'yes'}])assert.throws(()=>validate({...s,...patch}));});
+test('pause preserves times and permits next-event preview',()=>assert.equal(nextEvent(DEFAULTS,date('2026-11-11T08:00:00')).kind,'morning'));
