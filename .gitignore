@@ -16,3 +16,9 @@ state.json
 session-preferences.json
 TEST-REPORT.md
 preview/桌面版已启用.png
+
+# Local review artifacts may contain private recording titles/links.
+review-backup/
+preview/命名审查示例.json
+preview/听课搭子-v0.6-命名审查.html
+preview/自动命名-*.png

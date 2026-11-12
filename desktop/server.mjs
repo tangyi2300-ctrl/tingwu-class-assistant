@@ -1,12 +1,13 @@
 import http from 'node:http';
 import {spawn} from 'node:child_process';
+import {DEFAULT_NAMING,observeRecordings,prepareTitle,canAutoApply,applyTitle,validateCandidate,savedURL} from './naming.mjs';
 import {runnableEvents,preflightEvents,startDeadline} from './scheduler.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {homedir} from 'node:os';
 import {randomBytes} from 'node:crypto';
 import {DEFAULTS,validate,dueEvents,nextEvent,clockParts} from '../extension/schedule.js';
-import {openTingwu,controlStatus,controlStep,notify,askEnd} from './chrome.mjs';
+import {openTingwu,controlStatus,controlStep,notify,askEnd,namingTabs,readNamingMetadata,writeRecordingTitle,openNamingRecord} from './chrome.mjs';
 const PORT=Number(process.env.TINGWU_PORT || 18766), HOST='127.0.0.1', origin=`http://${HOST}:${PORT}`;
 const root=path.resolve(new URL('..',import.meta.url).pathname);
 const data=process.env.TINGWU_DATA_DIR || path.join(homedir(),'Library/Application Support/TingwuClassAssistant/data');
@@ -17,13 +18,17 @@ try {state=JSON.parse(await readFile(stateFile,'utf8'));state.settings=validate(
  if(e.code!=='ENOENT') console.error('配置不可用，恢复暂停状态：',e.message);
  state={settings:{...DEFAULTS},completed:{},logs:[],connection:null};
 }
+state.naming??=structuredClone(DEFAULT_NAMING);
+for(const j of state.naming.jobs){if(j.status==='applying'){j.status='attention';j.reason='上次改名期间服务中断，请检查听悟实际标题后重试。';}}
+const preview=process.env.TINGWU_PREVIEW==='1';
+let namingBusy=false;
 let writeQueue=Promise.resolve();
 function save(){const snapshot=JSON.stringify(state,null,2);writeQueue=writeQueue.catch(()=>{}).then(async()=>{await writeFile(stateFile+'.tmp',snapshot,{mode:0o600});await rename(stateFile+'.tmp',stateFile);});return writeQueue;}
 async function log(message,level='info'){state.logs=[{time:Date.now(),message,level},...(state.logs||[])].slice(0,80);await save();}
 const token=randomBytes(32).toString('hex');
 let busy=false,stopping=false,awakeProcess=null;
 function syncAwake(){
- if(state.settings.enabled && !awakeProcess){
+ if(!preview && state.settings.enabled && !awakeProcess){
   awakeProcess=spawn('/usr/bin/caffeinate',['-i','-s','-w',String(process.pid)],{stdio:'ignore'});
   awakeProcess.once('error',e=>{awakeProcess=null;console.error('防休眠不可用：'+e.message);});
   awakeProcess.once('exit',()=>{awakeProcess=null;});
@@ -37,7 +42,7 @@ async function check(){
  return state.connection;
 }
 async function startRecording(attemptId=null,deadline=Infinity){
- if(busy)throw Error('正在处理启动，请稍候');
+ if(busy || namingBusy)throw Error('正在处理听悟任务，请稍候');
  busy=true;stopping=false;
  try {
   await openTingwu();
@@ -69,7 +74,7 @@ async function reminder(){
 }
 let ticking=false;
 async function tick(){
- if(ticking || busy)return;
+ if(preview || ticking || busy || namingBusy)return;
  ticking=true;syncAwake();
  try {
   const today=clockParts().date;
@@ -96,18 +101,81 @@ async function tick(){
   }
  }catch(e){console.error(e.message);}finally{ticking=false;}
 }
+async function storeNamingJob(job){
+ state.naming.jobs=[job,...state.naming.jobs.filter(j=>j.id!==job.id)];await save();
+}
+async function commitNamingJob(job){
+ const result=await applyTitle(job,{write:writeRecordingTitle,save:storeNamingJob});
+ await log(result.status==='renamed'?'录音已自动命名：'+result.candidate:result.reason,result.status==='renamed'?'info':'warning');
+ if(result.status==='renamed')await notify('课堂录音已命名',result.candidate);
+ return result;
+}
+async function monitorNaming(){
+ if(preview || busy || ticking || namingBusy || !state.naming.enabled)return;
+ namingBusy=true;
+ try{
+  state.naming=observeRecordings(state.naming,await namingTabs());
+  state.naming.lastCheckedAt=Date.now();delete state.naming.error;await save();
+  const pending=state.naming.jobs.find(j=>j.status==='waiting' && Date.now()-(j.checkedAt||0)>60000);
+  if(pending){
+   if(Date.now()-pending.savedAt>60*60*1000){await storeNamingJob({...pending,status:'attention',reason:'等待内容超过一小时，请打开录音后重新检查。'});}
+   else{await storeNamingJob({...pending,checkedAt:Date.now()});const prepared=await prepareTitle(pending,readNamingMetadata);await storeNamingJob(prepared);}
+  }
+  const ready=state.naming.jobs.find(j=>canAutoApply(j,state.naming));
+  if(ready)await commitNamingJob(ready);
+ }catch(e){state.naming.error=e.message;await save();}
+ finally{namingBusy=false;}
+}
 const files={'/':'index.html','/style.css':'style.css','/app.js':'app.js','/icon.png':'../extension/icon.png'};
 function respond(res,code,body,type='application/json'){res.writeHead(code,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'"});res.end(typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body));}
 const server=http.createServer(async(req,res)=>{
  try{
   if(req.headers.host!==`${HOST}:${PORT}`)return respond(res,403,{error:'invalid host'});
   const url=new URL(req.url,origin);
-  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,next:nextEvent(state.settings),version:'0.4.0',mode:'desktop'});
+  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,next:nextEvent(state.settings),version:'0.6.0',mode:'desktop',preview});
   if(req.method==='POST' && url.pathname.startsWith('/api/')){
    if(req.headers.origin!==origin || req.headers['x-tingwu-token']!==token || req.headers['content-type']!=='application/json')return respond(res,403,{error:'请求来源无效'});
    let raw='';for await(const c of req){raw+=c;if(raw.length>4096)return respond(res,413,{error:'请求过大'});}
    const body=JSON.parse(raw||'{}');let result;
+   if(preview)throw Error('这是审查预览，不会修改听悟录音或正式设置');
+   if(namingBusy)throw Error('正在处理录音命名，请稍后重试');
    switch(url.pathname){
+    case '/api/naming-toggle':
+     if(typeof body.enabled!=='boolean')throw Error('开关参数无效');
+     state.naming.enabled=body.enabled;state.naming.mode='auto';await save();result={message:body.enabled?'已开启保存后自动命名':'自动命名已关闭'};break;
+    case '/api/naming-inspect':
+     if(busy || ticking)throw Error('正在处理课表任务，请稍候');
+     namingBusy=true;
+     try{
+      const tabs=(await namingTabs()).filter(t=>savedURL(t.url));
+      const unique=[...new Map(tabs.map(t=>[savedURL(t.url),t])).values()];
+      if(body.id && !state.naming.jobs.some(j=>j.id===body.id))throw Error('未找到指定录音');
+      let job=state.naming.jobs.find(j=>j.id===body.id);
+      if(!job){
+       if(unique.length!==1)throw Error('请在 Chrome 只保留一个待检查的已保存录音，或使用对应记录的重新检查按钮');
+       const tab=unique[0],url=savedURL(tab.url);
+       job=state.naming.jobs.find(j=>j.url===url) || {id:'saved:'+url,url,tabId:tab.tabId,windowId:tab.windowId,originalTitle:tab.title.replace(/ - 通义听悟$/,''),status:'waiting',createdAt:Date.now(),savedAt:Date.now()};
+      }
+      if(!job.url)throw Error('尚未确认保存，请先打开已保存的录音详情');
+      if(job.status==='renamed'){result={message:'该录音已完成命名'};break;}
+      const prepared=await prepareTitle({...job,reviewOnly:true,savedAt:Date.now()},readNamingMetadata);await storeNamingJob(prepared);
+      result={message:prepared.candidate?'已生成标题候选，可在下方审查':prepared.reason};
+     }finally{namingBusy=false;}break;
+    case '/api/naming-apply':
+     if(busy || ticking)throw Error('正在处理课表任务，请稍候');
+     const job=state.naming.jobs.find(j=>j.id===body.id);
+     if(!job?.url || !['draft','attention'].includes(job.status))throw Error('当前记录不支持改名');
+     const candidate=validateCandidate(body.candidate,job.originalTitle);
+     namingBusy=true;
+     try{const done=await commitNamingJob({...job,candidate});result={message:done.reason};}finally{namingBusy=false;}break;
+    case '/api/naming-open':
+     const selected=state.naming.jobs.find(j=>j.id===body.id);
+     if(!selected?.url)throw Error('尚未确认录音已保存');
+     await openNamingRecord(selected);result={message:'已打开对应听悟录音'};break;
+    case '/api/naming-skip':
+     const skipped=state.naming.jobs.find(j=>j.id===body.id);
+     if(!skipped || ['applying','renamed'].includes(skipped.status))throw Error('该记录不能跳过');
+     await storeNamingJob({...skipped,status:'skipped',reason:'本条录音保留原标题。'});result={message:'已保留原标题'};break;
     case '/api/save':
      const updated=validate(body.settings);if(updated.enabled){const c=await check();if(!c.ok || c.loginRequired || c.noTab || c.browserClosed || (!c.homeReady && !c.ongoing && !c.path?.startsWith('/doc/')))throw Error(c.error || '请先打开听悟并登录，完成连接检查后再启用');}state.settings=updated;if(!state.settings.enabled)stopping=true;await save();syncAwake();result={message:state.settings.enabled?'自动课表已启用':'课表已暂停，已有录音保持不变'};await log(result.message);break;
     case '/api/open':await openTingwu();result={message:'已打开听悟，使用 Chrome 保存的登录状态'};break;
@@ -131,5 +199,6 @@ server.on('error',e=>{console.error(e);process.exit(1);});
 server.listen(PORT,HOST,()=>console.log('听课搭子已启动：'+origin));
 await save();syncAwake();
 setInterval(tick,20000);
+if(!preview){setTimeout(monitorNaming,1500);setInterval(monitorNaming,15000);}
 // Opening the application is not an instruction to begin recording immediately.
 // Scheduler only evaluates weekday events when explicitly enabled.

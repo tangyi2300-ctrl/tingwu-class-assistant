@@ -13,7 +13,9 @@ try {
  await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('exit',()=>reject(Error('test server exited')));setTimeout(()=>reject(Error('test server timeout')),5000).unref();});
  const url='http://127.0.0.1:18767';
  const s=await (await fetch(url+'/api/status')).json();
+ assert.equal(s.naming.enabled,false);assert.deepEqual(s.naming.jobs,[]);
  assert.equal(s.settings.noon,'12:10');assert.equal(s.settings.evening,'18:10');assert.equal(s.settings.enabled,false);
+ assert.equal((await fetch(url+'/api/naming-apply',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
  assert.equal((await fetch(url+'/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
  browser=await chromium.launch({executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
  const page=await browser.newPage({viewport:{width:1400,height:1300}});const errors=[];page.on('pageerror',e=>errors.push(e.message));

@@ -112,3 +112,57 @@ export async function askEnd() {
   const response=await apple(`display dialog "下课了，现在结束录音吗？\\n\\n请亲自在通义听悟中点击结束录音。若还在上课，可以继续录制。" with title "听课搭子" buttons {"继续录制", "前往听悟"} default button "继续录制" giving up after 300`,310000);
   if(response.includes('button returned:前往听悟')) await openTingwu();
 }
+
+export async function namingTabs(){
+ if(await apple('if application "Google Chrome" is running then return "running"')!=='running')return [];
+ const raw=await apple(`tell application "Google Chrome"
+set rows to ""
+repeat with w in windows
+ repeat with i from 1 to count of tabs of w
+  set t to tab i of w
+  if URL of t starts with "https://tingwu.aliyun.com/" then set rows to rows & (id of w as text) & (character id 9) & (id of t as text) & (character id 9) & (i as text) & (character id 9) & URL of t & (character id 9) & title of t & linefeed
+ end repeat
+end repeat
+return rows
+end tell`);
+ return raw.split('\n').filter(Boolean).map(row=>{const [windowId,tabId,index,url,...title]=row.split('\t');return {windowId:Number(windowId),tabId:Number(tabId),index:Number(index),url,title:title.join(' ')};}).filter(t=>Number.isInteger(t.tabId)&&t.url);
+}
+async function namingTab(job){
+ const {savedURL}=await import('./naming.mjs');
+ if(!savedURL(job.url))throw Error('缺少已保存录音的有效链接');
+ const tabs=await namingTabs();
+ const tab=tabs.find(t=>t.tabId===job.tabId && savedURL(t.url)===job.url)||tabs.find(t=>savedURL(t.url)===job.url);
+ if(!tab)throw Error('请先在 Chrome 打开本条听悟录音');
+ await focus(tab);
+ await new Promise(r=>setTimeout(r,500));
+ return tab;
+}
+export async function readNamingMetadata(job){
+ const tab=await namingTab(job);
+ const result=await native(['title-read',tab.url]);
+ if(result.noTab)throw Error('听悟记录页尚未就绪或已切换，请稍后重试');
+ return result;
+}
+export async function openNamingRecord(job){await namingTab(job);}
+export async function writeRecordingTitle(job){
+ const tab=await namingTab(job),before=await native(['title-read',tab.url]);
+ if(before.title!==job.originalTitle && before.title!==job.candidate)throw Error('标题已被修改，保留现有标题');
+ // A previous interrupted attempt may have left the desired value in the
+ // input without committing it. Submit that exact value before reloading.
+ const submitted=await native(['title-write',tab.url,before.title,job.candidate]);
+ if(!submitted.submitted)throw Error('未确认标题提交');
+ await new Promise(r=>setTimeout(r,2000));
+ // A displayed input value alone is not evidence of server persistence.
+ const current=(await namingTabs()).find(t=>t.tabId===tab.tabId&&t.windowId===tab.windowId);
+ if(current?.url!==tab.url)throw Error('页面已切换，停止验证');
+ await apple(`tell application "Google Chrome" to reload tab id ${tab.tabId} of window id ${tab.windowId}`);
+ for(let i=0;i<8;i++){
+  await new Promise(r=>setTimeout(r,1000));
+  try{
+   const loading=await apple(`tell application "Google Chrome" to get loading of tab id ${tab.tabId} of window id ${tab.windowId}`);
+   if(loading!=='false')continue;
+   const after=await native(['title-read',tab.url]);if(after.title===job.candidate)return {title:after.title,persisted:true};
+  }catch{}
+ }
+ throw Error('重新加载后未读到新标题，请在听悟核对');
+}

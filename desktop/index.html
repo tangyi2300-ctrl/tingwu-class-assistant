@@ -1,9 +1,17 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="tingwu-token" content="TOKEN_PLACEHOLDER"><title>听课搭子 · 听悟定时助手</title><link rel="stylesheet" href="style.css"></head>
 <body><main id="dashboard">
-<header><a class="brand" href="/"><span class="brand-icon">◉</span> 听课搭子 <small>CLASS COMPANION</small></a><span class="review">桌面版 · v0.4</span></header>
-<section class="hero"><div><p class="eyebrow">复用 Chrome 登录状态 · 到点自动点击录制</p><h1>上课前，<br>让听悟准备好。</h1><p class="intro">周一至周五，课前尝试自动启动麦克风录音。<br>下课时提醒你，由你亲自结束每一次记录。</p></div><div class="sound-art" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><div>为每一堂课，留一份记录</div></div></section>
+<header><a class="brand" href="/"><span class="brand-icon">◉</span> 听课搭子 <small>CLASS COMPANION</small></a><span class="review">桌面版 · v0.6</span></header>
+<section class="hero"><div><p class="eyebrow">复用 Chrome 登录状态 · 到点自动点击录制</p><h1>听完一堂课，<br>一眼找到重点。</h1><p class="intro">周一至周五，课前尝试自动启动麦克风录音。<br>结束保存后，把时间和主要内容写进录音标题。</p></div><div class="sound-art" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><div>为每一堂课，留一份记录</div></div></section>
 <section class="status-bar"><div><span id="status-dot" class="dot"></span><strong id="status-title">正在连接桌面服务…</strong><p id="next">正在读取课表状态…</p></div><button id="toggle" class="primary">启用课表</button></section>
+<section class="card naming-card" aria-labelledby="naming-heading">
+ <div class="naming-top"><div><p class="eyebrow">AFTER CLASS · 录音自动命名</p><h2 id="naming-heading">让每一份录音，都有清楚的名字。</h2><p class="naming-intro">日期 + 开始时间 + 主要内容，直接写入通义听悟的录音标题。</p></div><button id="naming-toggle" class="secondary" aria-pressed="false">启用自动命名</button></div>
+ <div class="naming-format"><span>命名格式</span><b>2026-11-11</b><i>｜</i><b>14:22</b><i>｜</i><b>这堂课主要讲什么</b><small>使用原录音时间 · 北京时间</small></div>
+ <div class="naming-process"><span>① 结束并保存</span><span>② 提炼主要内容</span><span>③ 自动改名并核对</span></div>
+ <div class="section-heading"><h3>最近的命名记录</h3><button id="naming-inspect" class="text-button">检查已保存录音 ↻</button></div>
+ <p id="naming-health" class="hint" role="status"></p><div id="naming-jobs" aria-live="polite"></div>
+ <p class="hint naming-note">请保留听悟录音页直至处理完成。内容不足、日期不明或你已手动命名时，会保留原标题并提醒检查。</p>
+</section>
 <div class="grid"><section class="card"><div class="section-heading"><h2>我的上课计划</h2><span>周一至周五 · 北京时间</span></div>
 <form id="schedule-form"><div class="session"><span class="session-label">AM <b>上午课堂</b><small>10:00 — 12:00</small></span><div class="time-row"><label>课前自动启动<input id="morning" type="time" required value="09:55"></label><i>→</i><label>提醒手动结束<input id="noon" type="time" required value="12:10"></label></div></div>
 <div class="session"><span class="session-label">PM <b>下午课堂</b><small>14:00 — 18:00</small></span><div class="time-row"><label>课前自动启动<input id="afternoon" type="time" required value="13:55"></label><i>→</i><label>询问并提醒结束<input id="evening" type="time" required value="18:10"></label></div></div>

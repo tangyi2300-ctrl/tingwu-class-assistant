@@ -23,7 +23,7 @@ shutil.copy2(node,base/'runtime/node')
 (base/'logs').mkdir(exist_ok=True)
 (base/'data').mkdir(mode=0o700,exist_ok=True)
 contents=app/'Contents';(contents/'MacOS').mkdir(parents=True,exist_ok=True);(contents/'Resources').mkdir(exist_ok=True)
-info={'CFBundleName':'听课搭子','CFBundleDisplayName':'听课搭子','CFBundleIdentifier':'com.tangyi.tingwuclassassistant','CFBundleVersion':'0.4.0','CFBundleShortVersionString':'0.4.0','CFBundleExecutable':'launcher','CFBundlePackageType':'APPL','LSUIElement':True,'CFBundleIconFile':'AppIcon','NSAppleEventsUsageDescription':'在上课前打开通义听悟并点击开始录音。'}
+info={'CFBundleName':'听课搭子','CFBundleDisplayName':'听课搭子','CFBundleIdentifier':'com.tangyi.tingwuclassassistant','CFBundleVersion':'0.6.0','CFBundleShortVersionString':'0.6.0','CFBundleExecutable':'launcher','CFBundlePackageType':'APPL','LSUIElement':True,'CFBundleIconFile':'AppIcon','NSAppleEventsUsageDescription':'在上课前打开通义听悟并点击开始录音。'}
 (contents/'Info.plist').write_bytes(plistlib.dumps(info))
 config={'Label':label,'ProgramArguments':[str(base/'runtime/node'),str(base/'desktop/server.mjs')],'WorkingDirectory':str(base),'RunAtLoad':True,'KeepAlive':True,'ThrottleInterval':30,'ProcessType':'Background','StandardOutPath':str(base/'logs/service.log'),'StandardErrorPath':str(base/'logs/error.log')}
 plist.parent.mkdir(exist_ok=True);plist.write_bytes(plistlib.dumps(config))
