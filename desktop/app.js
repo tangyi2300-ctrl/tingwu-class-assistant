@@ -14,8 +14,13 @@ function render(fields=false){
  $('#next').textContent=on?`下一次：${new Date(state.next.when).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'})} · ${LABELS[state.next.kind]}`:'完成登录与连接检查后，可启用自动录音';
  const c=state.connection;
  let message='点击「检查登录与自动点击」确认准备状态';
- if(c){message=!c.ok?c.error:c.browserClosed?'Chrome 尚未打开':c.noTab?'请先打开通义听悟':c.loginRequired?'听悟需要登录验证，请在 Chrome 完成':c.ongoing?'检测到录音界面，请核对听悟计时和转写':c.homeReady?'已连接听悟工作台，自动点击功能可用':'已连接浏览器，等待听悟工作台加载';}
+ if(c){message=!c.ok?c.error:c.browserClosed?'Chrome 尚未打开':c.noTab?'请先打开通义听悟':c.loginRequired?'听悟需要登录验证，请在 Chrome 完成':c.paused?'已有录音已暂停，请在听悟手动恢复':c.ongoing?'已连接录音页面，计时 '+(c.elapsedSeconds??'待确认')+' 秒':c.homeReady?'已连接听悟工作台，自动点击功能可用':'已连接浏览器，等待听悟工作台加载';}
  $('#connection').textContent=message;$('#connection').classList.toggle('warning',!!c&&(!c.ok||c.loginRequired||c.noTab));
+ const pending=(state.sessions||[]).find(s=>['starting','retrying','pending','missed'].includes(s.status));
+ const confirmed=(state.sessions||[]).filter(s=>s.status==='confirmed');
+ const blocked=state.connection && !state.connection.ok;
+ $('#run-health').textContent=!on?'':blocked?'课表已启用，但自动启动尚未就绪，请查看连接提示。':pending?`${LABELS[pending.kind]}：${pending.status==='missed'?'本节课未确认录音':pending.status==='starting'?'正在启动并核对录音计时':'尚未确认录音，课内自动重试'}${pending.error?' · '+pending.error:''}`:confirmed.length?`今天已确认 ${confirmed.length} 次启动；手动结束后不会重复开启。`:'后台已就绪 · 到点启动并核对计时 · 失败会提醒并在课内重试';
+ $('#run-health').classList.toggle('warning',!!pending||!!blocked);
  renderNaming();
  $('#logs').replaceChildren(...(state.logs.length?state.logs.slice(0,8):[{message:'还没有运行记录。'}]).map(item=>{const li=document.createElement('li');li.className=item.level||'';li.textContent=(item.time?new Date(item.time).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'　':'')+item.message;return li;}));
 }
@@ -25,7 +30,7 @@ function renderNaming(){
  const n=state.naming||{enabled:false,jobs:[]};
  $('#naming-toggle').textContent=n.enabled?'关闭自动命名':'启用自动命名';
  $('#naming-toggle').setAttribute('aria-pressed',String(n.enabled));
- $('#naming-health').textContent=state.preview?'审查预览 · 此处展示标题效果，不会修改真实录音':n.error?'连接待恢复：'+n.error:n.enabled?'自动命名已开启 · 后台观察新录音，保存后自动处理':'尚未启用 · 开启后自动处理新录音；可先检查一条已保存的录音';
+ $('#naming-health').textContent=state.preview?'审查预览 · 此处展示标题效果，不会修改真实录音':n.error?'连接待恢复：'+n.error:n.enabled?'自动命名已开启 · 每分钟补查已保存记录，返回首页也可处理':'尚未启用 · 开启后补查未改名录音，并持续处理后续保存';
  // Preserve a title being edited while the rest of the dashboard polls.
  if(document.activeElement?.matches('.candidate-input'))return;
  const container=$('#naming-jobs');container.replaceChildren();
@@ -44,7 +49,7 @@ function renderNaming(){
   const actions=document.createElement('div');actions.className='naming-actions';
   function button(text,action,data={},primary=false){const b=document.createElement('button');b.className=primary?'primary':'secondary';b.textContent=text;b.onclick=async()=>{b.disabled=true;try{toast((await api(action,{id:job.id,...data,...(action==='naming-apply'?{candidate:titleEdits.get(job.id)||job.candidate}:{})})).message);await refresh();}catch(e){toast(e.message);}finally{b.disabled=false;}};actions.append(b);}
   if(job.candidate && ['draft','attention'].includes(job.status))button('采用这个标题','naming-apply',{},true);
-  if(job.url)button('在听悟查看 ↗','naming-open');
+  if(job.url){const open=document.createElement('button');open.className='secondary';open.textContent='在听悟查看 ↗';open.onclick=()=>window.open(job.url,'_blank','noopener');actions.append(open);}
   if(job.status==='attention' && job.url)button('重新检查','naming-inspect');
   if(['draft','attention','waiting'].includes(job.status))button('保留原标题','naming-skip');
   card.append(actions);container.append(card);

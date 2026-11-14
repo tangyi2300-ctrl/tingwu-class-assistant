@@ -10,6 +10,8 @@ if app.exists():
  if not info.exists() or plistlib.loads(info.read_bytes()).get('CFBundleIdentifier')!='com.tangyi.tingwuclassassistant':
   raise SystemExit('桌面同名应用不属于本项目，停止安装，避免覆盖。')
 subprocess.run(['/usr/bin/swiftc',str(root/'native/TingwuUI.swift'),'-o',str(root/'native/tingwu-ui')],check=True)
+node_source=shutil.which('node')
+if not (base/'runtime/node').exists() and not node_source:raise SystemExit('请先安装 Node.js，再运行安装程序。')
 if plist.exists():
  old=plistlib.loads(plist.read_bytes())
  if old.get('Label')!=label:raise SystemExit('后台服务名称冲突')
@@ -18,12 +20,12 @@ base.mkdir(parents=True,exist_ok=True)
 for name in ['desktop','extension','native']:
  shutil.copytree(root/name,base/name,dirs_exist_ok=True)
 (base/'runtime').mkdir(exist_ok=True)
-node=Path(shutil.which('node')).resolve()
-shutil.copy2(node,base/'runtime/node')
+# Keep the existing runtime identity so macOS Accessibility permission remains valid.
+if not (base/'runtime/node').exists():shutil.copy2(Path(node_source).resolve(),base/'runtime/node')
 (base/'logs').mkdir(exist_ok=True)
 (base/'data').mkdir(mode=0o700,exist_ok=True)
 contents=app/'Contents';(contents/'MacOS').mkdir(parents=True,exist_ok=True);(contents/'Resources').mkdir(exist_ok=True)
-info={'CFBundleName':'听课搭子','CFBundleDisplayName':'听课搭子','CFBundleIdentifier':'com.tangyi.tingwuclassassistant','CFBundleVersion':'0.6.0','CFBundleShortVersionString':'0.6.0','CFBundleExecutable':'launcher','CFBundlePackageType':'APPL','LSUIElement':True,'CFBundleIconFile':'AppIcon','NSAppleEventsUsageDescription':'在上课前打开通义听悟并点击开始录音。'}
+info={'CFBundleName':'听课搭子','CFBundleDisplayName':'听课搭子','CFBundleIdentifier':'com.tangyi.tingwuclassassistant','CFBundleVersion':'0.8.0','CFBundleShortVersionString':'0.8.0','CFBundleExecutable':'launcher','CFBundlePackageType':'APPL','LSUIElement':True,'CFBundleIconFile':'AppIcon','NSAppleEventsUsageDescription':'在上课前打开通义听悟并点击开始录音。'}
 (contents/'Info.plist').write_bytes(plistlib.dumps(info))
 config={'Label':label,'ProgramArguments':[str(base/'runtime/node'),str(base/'desktop/server.mjs')],'WorkingDirectory':str(base),'RunAtLoad':True,'KeepAlive':True,'ThrottleInterval':30,'ProcessType':'Background','StandardOutPath':str(base/'logs/service.log'),'StandardErrorPath':str(base/'logs/error.log')}
 plist.parent.mkdir(exist_ok=True);plist.write_bytes(plistlib.dumps(config))

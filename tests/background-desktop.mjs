@@ -1,0 +1,35 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
+import {nativeStatus,recordingAdvanced} from '../desktop/native-status.mjs';
+import {chromeCall} from '../desktop/chrome-process.mjs';
+const originalPID=await chromeCall('hasBrowser')?await chromeCall('pid'):null;
+const browser=await chromium.launch({executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
+try{
+ if(originalPID)assert.equal(await chromeCall('pid'),originalPID,'headless tests must never become the automation target');
+ const context=await browser.newContext();
+ await context.route('https://tingwu.aliyun.com/**',r=>r.fulfill({contentType:'text/html; charset=utf-8',body:'<body><button id="start">开始录音</button><span id="live"></span><span>00:00</span><span id="elapsed">00:00</span><span>06:00:00</span><button id="stop">结束录音</button></body>'}));
+ const recording=await context.newPage();await recording.goto('https://tingwu.aliyun.com/doc/record');
+ await recording.evaluate(()=>{document.querySelector('#stop').hidden=true;window.starts=0;window.stops=0;document.querySelector('#start').onclick=()=>{window.starts++;document.querySelector('#start').hidden=true;document.querySelector('#live').textContent='录音中…';document.querySelector('#stop').hidden=false;let sec=0;setInterval(()=>document.querySelector('#elapsed').textContent='00:'+String(++sec).padStart(2,'0'),1000);};document.querySelector('#stop').onclick=()=>window.stops++;});
+ await recording.addScriptTag({path:fileURLToPath(new URL('../desktop/page-agent.js',import.meta.url))});
+ const work=await context.newPage();await work.setContent('<textarea autofocus>正在工作</textarea>');await work.bringToFront();await work.locator('textarea').focus();
+ const beforeFocus=await work.evaluate(()=>({value:document.querySelector('textarea').value,focused:document.activeElement.tagName}));
+ assert.equal((await recording.evaluate(()=>window.__tingwuClassDesktopV3.step('silent',Date.now()+60000))).action,'clicked');
+ const read=async()=>({...nativeStatus(await recording.evaluate(()=>window.__tingwuClassDesktopV3.status())),tabId:1,windowId:1});
+ const first=await read();await recording.waitForTimeout(2200);const second=await read();assert.equal(recordingAdvanced(first,second),true);
+ assert.equal((await recording.evaluate(()=>window.__tingwuClassDesktopV3.step('silent'))).action,'ongoing');
+ assert.deepEqual(await recording.evaluate(()=>({starts,stops})),{starts:1,stops:0});
+ assert.deepEqual(await work.evaluate(()=>({value:document.querySelector('textarea').value,focused:document.activeElement.tagName})),beforeFocus);
+ await recording.evaluate(()=>{document.body.innerHTML='<button id="start">开始录音</button>';document.querySelector('#start').onclick=()=>window.starts++;});
+ assert.equal((await recording.evaluate(()=>window.__tingwuClassDesktopV3.step('expired',Date.now()-1))).action,'deadline');
+ assert.equal(await recording.evaluate(()=>window.starts),1);
+ await recording.evaluate(()=>{document.body.innerHTML='<span>已暂停</span><span>录音已暂停</span><button id="start">开始录音</button>';document.querySelector('#start').onclick=()=>window.starts++;});
+ const paused=await recording.evaluate(()=>window.__tingwuClassDesktopV3.step('paused'));
+ assert.equal(paused.action,'ongoing');assert.equal(nativeStatus(paused).paused,true);
+ assert.equal(await recording.evaluate(()=>window.starts),1,'a paused real session must not be restarted');
+ await recording.evaluate(()=>{history.replaceState({},'', '/home');document.body.innerHTML='<div style="width:0;overflow:hidden"><div style="width:100px"><span>已暂停</span></div></div><button id="start">开启实时记录</button>';});
+ const ended=await recording.evaluate(()=>window.__tingwuClassDesktopV3.status());
+ assert.equal(ended.ongoing,false,'collapsed audio bar on home must not count as a paused session');
+ assert.equal(ended.homeReady,true);
+ console.log('PASS: correct normal Chrome selected alongside headless browser; background start and advancing timer; other work page unchanged; no stop clicks; deadline enforced.');
+}finally{await browser.close();}
