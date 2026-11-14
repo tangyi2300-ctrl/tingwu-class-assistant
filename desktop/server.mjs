@@ -2,7 +2,7 @@ import http from 'node:http';
 import {spawn} from 'node:child_process';
 import {DEFAULT_NAMING,reconcileSavedRecordings,prepareTitle,canAutoApply,applyTitle,validateCandidate,savedURL} from './naming.mjs';
 import {listSavedRecordings} from './tingwu-api.mjs';
-import {recordingHasPriority,dailyRuns,keepDisplayAwake} from './scheduler.mjs';
+import {recordingHasPriority,dailyRuns,keepDisplayAwake,SCHEDULE_POLL_MS} from './scheduler.mjs';
 import {runScheduleCycle} from './schedule-runner.mjs';
 import {recordingAdvanced,connectionProblem} from './native-status.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
@@ -30,7 +30,7 @@ function save(){const snapshot=JSON.stringify(state,null,2);writeQueue=writeQueu
 async function log(message,level='info'){state.logs=[{time:Date.now(),message,level},...(state.logs||[])].slice(0,80);await save();}
 const token=randomBytes(32).toString('hex');
 let busy=false,stopping=false,awakeProcess=null,displayProcess=null;
-const runtime={startedAt:Date.now(),lastTickAt:null,tickFinishedAt:null};
+const runtime={startedAt:Date.now(),lastTickAt:null,tickFinishedAt:null,schedulePollMs:SCHEDULE_POLL_MS};
 function syncAwake(){
  if(!preview && state.settings.enabled && !awakeProcess){
   awakeProcess=spawn('/usr/bin/caffeinate',['-i','-s','-w',String(process.pid)],{stdio:'ignore'});
@@ -134,7 +134,7 @@ const server=http.createServer(async(req,res)=>{
  try{
   if(req.headers.host!==`${HOST}:${PORT}`)return respond(res,403,{error:'invalid host'});
   const url=new URL(req.url,origin);
-  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.8.1',runtime:{...runtime,busy,ticking,namingBusy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
+  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.8.2',runtime:{...runtime,busy,ticking,namingBusy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
   if(req.method==='POST' && url.pathname.startsWith('/api/')){
    if(req.headers.origin!==origin || req.headers['x-tingwu-token']!==token || req.headers['content-type']!=='application/json')return respond(res,403,{error:'请求来源无效'});
    let raw='';for await(const c of req){raw+=c;if(raw.length>4096)return respond(res,413,{error:'请求过大'});}
@@ -197,7 +197,7 @@ const server=http.createServer(async(req,res)=>{
 server.on('error',e=>{console.error(e);process.exit(1);});
 server.listen(PORT,HOST,()=>console.log('听课搭子已启动：'+origin));
 await save();syncAwake();
-setInterval(tick,10000);
+setInterval(tick,SCHEDULE_POLL_MS);
 if(!preview)setTimeout(tick,500);
 if(!preview){setTimeout(monitorNaming,1500);setInterval(monitorNaming,15000);}
 // On startup or wake, retry an unconfirmed session only inside its weekday class window.

@@ -5,7 +5,18 @@ import {runnableEvents,preflightEvents,recordingHasPriority,startDeadline} from 
 const settings={...DEFAULTS,enabled:true};
 const time=s=>new Date('2026-11-16T'+s+'+08:00');
 test('Monday 09:50 preflight and 09:55 start',()=>{assert.equal(preflightEvents(settings,{},time('09:50:00'))[0].kind,'morning');assert.equal(runnableEvents(settings,{}, {},time('09:55:00'))[0].kind,'morning');});
-test('failed starts retry after 30 seconds; confirmed starts never repeat',()=>{const id='2026-11-16:morning',a={[id]:time('09:55:00').getTime()};assert.equal(runnableEvents(settings,{},a,time('09:55:20')).length,0);assert.equal(runnableEvents(settings,{},a,time('09:55:30')).length,1);assert.equal(runnableEvents(settings,{[id]:1},a,time('11:56:00')).length,0);});
+test('failed starts retry quickly around class start, then back off; confirmed starts never repeat',()=>{
+ const id='2026-11-16:morning',a={[id]:time('09:55:00').getTime()};
+ assert.equal(runnableEvents(settings,{},a,time('09:55:04')).length,0);
+ assert.equal(runnableEvents(settings,{},a,time('09:55:05')).length,1);
+ a[id]=time('09:59:58').getTime();
+ assert.equal(runnableEvents(settings,{},a,time('10:00:02')).length,0);
+ assert.equal(runnableEvents(settings,{},a,time('10:00:03')).length,1);
+ a[id]=time('10:05:00').getTime();
+ assert.equal(runnableEvents(settings,{},a,time('10:05:29')).length,0);
+ assert.equal(runnableEvents(settings,{},a,time('10:05:30')).length,1);
+ assert.equal(runnableEvents(settings,{[id]:1},a,time('11:56:00')).length,0);
+});
 test('wake after 10:00 and 14:00 catches up, but lunch/evening never starts recording',()=>{
  for(const s of ['09:59:50','10:00:00','11:59:59'])assert.equal(runnableEvents(settings,{}, {},time(s))[0].kind,'morning');
  for(const s of ['14:00:00','17:59:59'])assert.equal(runnableEvents(settings,{}, {},time(s))[0].kind,'afternoon');
