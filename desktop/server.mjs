@@ -134,7 +134,7 @@ const server=http.createServer(async(req,res)=>{
  try{
   if(req.headers.host!==`${HOST}:${PORT}`)return respond(res,403,{error:'invalid host'});
   const url=new URL(req.url,origin);
-  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.8.0',runtime:{...runtime,busy,ticking,namingBusy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
+  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.8.1',runtime:{...runtime,busy,ticking,namingBusy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
   if(req.method==='POST' && url.pathname.startsWith('/api/')){
    if(req.headers.origin!==origin || req.headers['x-tingwu-token']!==token || req.headers['content-type']!=='application/json')return respond(res,403,{error:'请求来源无效'});
    let raw='';for await(const c of req){raw+=c;if(raw.length>4096)return respond(res,413,{error:'请求过大'});}

@@ -84,6 +84,12 @@ export async function prepareTitle(job,read,now=Date.now()){
   const stamp=stampFromRecord(job.originalTitle,meta.recordedAt),topic=meta.wordCount===0?'空录音（无有效内容）':'内容较少待补充主题';
   if(stamp)proposal={status:'draft',candidate:`${stamp.date}｜${stamp.time}｜${topic}`,topic,customTitle:!defaultTitle(job.originalTitle),reason:'已保存的有效文字较少，使用明确标注，不猜测课程主题。'};
  }
+ // Tingwu's TEXT_TOO_SHORT=3 is terminal, not a pending summary. Both summary
+ // cards must agree; a missing/loading/failed card still gets another retry.
+ if(proposal.status==='waiting' && now-job.savedAt>=60000 && meta.summaryStatuses?.length===2 && meta.summaryStatuses.every(s=>s===3)){
+  const stamp=stampFromRecord(job.originalTitle,meta.recordedAt),topic='内容不足待补充主题';
+  if(stamp)proposal={status:'draft',candidate:`${stamp.date}｜${stamp.time}｜${topic}`,topic,customTitle:!defaultTitle(job.originalTitle),reason:'听悟概要和章节均确认文字过短，使用明确标注，不继续等待不会生成的概要。'};
+ }
  if(proposal.status==='attention' && /内容不足/.test(proposal.reason) && meta.summaryStatuses?.includes(0)){
   const stamp=stampFromRecord(job.originalTitle,meta.recordedAt);
   if(stamp)proposal={status:'draft',candidate:`${stamp.date}｜${stamp.time}｜内容不足待补充主题`,topic:'内容不足待补充主题',customTitle:!defaultTitle(job.originalTitle),reason:'听悟已完成分析，但有效内容不足；使用明确占位标题，不猜测主题。'};

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {recordingDate,defaultTitle,stampFromRecord,reconcileSavedRecordings,prepareTitle} from '../desktop/naming.mjs';
+import {recordingDate,defaultTitle,stampFromRecord,reconcileSavedRecordings,prepareTitle,canAutoApply} from '../desktop/naming.mjs';
 import {metadataFromLab,writeTitleWithAPI,validateRequest} from '../desktop/tingwu-api.mjs';
 const url='https://tingwu.aliyun.com/doc/transcripts/example';
 const record={url,transId:'example',title:'2026年11月13日 15:06 记录',status:0,recordedAt:1794553614000,duration:120,wordCount:200};
@@ -44,6 +44,30 @@ test('pending content remains retryable after an hour; empty recordings get an h
  assert.equal((await prepareTitle(job,read,7200000)).status,'waiting');
  const empty=await prepareTitle(job,async()=>({...await read(),wordCount:0,duration:0}),7200000);
  assert.equal(empty.candidate,'2026-11-13｜15:06｜空录音（无有效内容）');
+});
+test('saved short recordings above 50 words complete automatic naming without a summary',async()=>{
+ const short={...record,wordCount:129};
+ const meta=metadataFromLab(short,short.title,{labCardsMap:{labSummaryInfo:[{key:'fullSummary',status:3},{key:'agendaSummary',status:3}]}});
+ const job={url,originalTitle:short.title,savedAt:1000};
+ assert.equal((await prepareTitle(job,async()=>meta,60000)).status,'waiting');
+ const prepared=await prepareTitle(job,async()=>meta,61000);
+ assert.equal(prepared.candidate,'2026-11-13｜15:06｜内容不足待补充主题');
+ assert.equal(canAutoApply(prepared,{enabled:true,mode:'auto'}),true);
+});
+test('partial, loading, failed, and unknown summary states never trigger the short-content fallback',async()=>{
+ const job={url,originalTitle:record.title,savedAt:0};
+ for(const summaryStatuses of [[],[3],[3,1],[3,2],[3,5],[3,99],[0,3]]){
+  const prepared=await prepareTitle(job,async()=>({url,title:record.title,summaryTexts:[],wordCount:129,summaryStatuses}),120000);
+  assert.equal(prepared.status,'waiting',JSON.stringify(summaryStatuses));
+  assert.equal(prepared.candidate,undefined);
+ }
+});
+test('short-content fallback preserves user titles and uses usable summary content first',async()=>{
+ const job={url,originalTitle:record.title,savedAt:0};
+ const meta={url,title:record.title,wordCount:129,summaryStatuses:[3,3],summaryTexts:[]};
+ assert.equal((await prepareTitle(job,async()=>({...meta,title:'我自己的标题'}),120000)).status,'attention');
+ const prepared=await prepareTitle(job,async()=>({...meta,summaryTexts:['章节速览','00:00','儿童游戏观察与课堂活动设计']}),120000);
+ assert.match(prepared.candidate,/儿童游戏观察与课堂活动设计$/);
 });
 test('title writes compare current value, change only showName, and re-read persistence',async()=>{
  let title=record.title;const calls=[];
