@@ -27,7 +27,7 @@ const output=new URL('preview/自动命名演示.html',root);await writeFile(out
 const browser=await chromium.launch({executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
 try{
  const page=await browser.newPage({viewport:{width:1360,height:1150},deviceScaleFactor:1});const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto(output.href);await page.locator('.candidate-input').waitFor();assert.equal(await page.locator('.candidate-input').inputValue(),real.candidate);
+ await page.goto(output.href);await page.getByRole('button',{name:'课表与设置',exact:true}).click();await page.locator('.candidate-input').waitFor();assert.equal(await page.locator('.candidate-input').inputValue(),real.candidate);
  await page.screenshot({path:fileURLToPath(new URL('preview/自动命名演示.jpg',root)),type:'jpeg',quality:72,fullPage:true});
  await page.locator('.naming-card').screenshot({path:fileURLToPath(new URL('preview/自动命名-公开卡片.png',root))});
  await page.locator('.candidate-input').fill('2026-01-12｜10:00｜项目规划与团队协作');

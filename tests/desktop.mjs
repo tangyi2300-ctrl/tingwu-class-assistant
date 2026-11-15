@@ -1,12 +1,17 @@
+import {detailFixture} from './detail-fixture.mjs';
 import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
-import {mkdtemp,rm,readFile} from 'node:fs/promises';
+import {mkdtemp,rm,readFile,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const dir=await mkdtemp(path.join(tmpdir(),'tingwu-desktop-test-'));
+// Fictional recordings only. Never load the user's account in UI tests.
+const topics=['镜头语言与叙事节奏','角色设计：从轮廓到性格表达','场景光影与色彩关系','AI 视频工作流与提示词拆解','短片分镜与画面构图','声音设计与情绪表达','人物动作与表演细节'];
+const recordings=Array.from({length:21},(_,i)=>({transId:`demo-${i}`,url:`https://tingwu.aliyun.com/doc/transcripts/demo-${i}`,title:`2026-01-${String(24-Math.floor(i/2)).padStart(2,'0')}｜${i%2?'09:55':'13:55'}｜${topics[i%topics.length]}`,recordedAt:Date.parse(`2026-01-${String(24-Math.floor(i/2)).padStart(2,'0')}T${i%2?'09:55':'13:55'}:00+08:00`),duration:3600+i*65,status:0}));
+await writeFile(path.join(dir,'state.json'),JSON.stringify({settings:{enabled:false,morning:'09:55',noon:'12:10',afternoon:'13:55',evening:'18:10'},completed:{},logs:[],connection:null,library:{records:recordings,updatedAt:Date.now(),error:null}}));
 const child=spawn(process.execPath,[path.join(root,'desktop/server.mjs')],{env:{...process.env,TINGWU_DATA_DIR:dir,TINGWU_PORT:"18767"},stdio:'pipe'});
 let browser;
 try {
@@ -17,16 +22,72 @@ try {
  assert.equal(s.settings.noon,'12:10');assert.equal(s.settings.evening,'18:10');assert.equal(s.settings.enabled,false);
  assert.equal((await fetch(url+'/api/naming-apply',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
  assert.equal((await fetch(url+'/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
+ assert.equal((await fetch(url+'/api/recording-detail',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
+ assert.equal((await fetch(url+'/api/recordings-refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
  browser=await chromium.launch({executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
  const page=await browser.newPage({viewport:{width:1400,height:1300}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.route('**/api/recordings-refresh',r=>r.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:{refreshing:false}})}));
  await page.goto(url);await page.waitForFunction(()=>document.querySelector('#noon').value==='12:10');
+ await page.locator('.recording-row').first().waitFor();
+ assert.equal(await page.locator('#library-page').isVisible(),true);assert.equal(await page.locator('#settings-page').isVisible(),false);
+ assert.equal(await page.locator('.recording-row').count(),21);
+ assert.equal(await page.locator('.recording-title').first().textContent(),topics[0]);
+ assert.equal(await page.locator('.recording-day').first().textContent(),'24');
+ assert.equal(await page.locator('.recording-link').first().getAttribute('href'),'#recording/'+recordings[0].transId);
+ assert.ok(await page.locator('.recording-title').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize))>=22);
+ await page.screenshot({path:path.join(root,'preview/录音列表首页.png'),fullPage:false});
+ // In-app detail navigation, notes, all views, errors and stale-response protection.
+ let detailFailure=false,slowFirst=false;
+ await page.route('**/api/recording-detail',async route=>{
+  const body=route.request().postDataJSON(),record=recordings.find(r=>r.transId===body.transId);
+  if(slowFirst&&record.transId==='demo-0')await new Promise(r=>setTimeout(r,550));
+  const detail=detailFixture(record,{withNotes:record.transId==='demo-0'});
+  await route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:{status:detailFailure?'error':'ready',error:detailFailure?'网络暂时中断':null,detail}})});
+ });
+ await page.locator('.recording-link').first().click();await page.locator('.map-branch').first().waitFor();
+ assert.equal(await page.locator('#detail-page').isVisible(),true);assert.equal(await page.locator('#library-page').isVisible(),false);
+ assert.equal(await page.context().pages().length,1);assert.equal(await page.locator('.map-branch').count(),5);
+ assert.match(await page.locator('#detail-note-badge').textContent(),/已结合 2 段笔记/);
+ assert.match(await page.locator('#map-branches').textContent(),/周五记得带读卡器/);
+ assert.match(await page.locator('.map-branch').first().textContent(),/构图先确定主体/);
+ await page.screenshot({path:path.join(root,'preview/录音思维导图.png'),fullPage:false});
+ await page.locator('#detail-expand').click();assert.equal(await page.locator('.map-branch[open]').count(),0);
+ await page.locator('#detail-expand').click();assert.equal(await page.locator('.map-branch[open]').count(),5);
+ await page.locator('#outline-tab').click();assert.equal(await page.locator('.map-root').isVisible(),false);
+ await page.locator('#notes-tab').click();assert.equal(await page.locator('#detail-notes .outline-note').count(),3);
+ await page.locator('#transcript-tab').click();assert.equal(await page.locator('.transcript-row').count(),2);
+ await page.locator('#map-tab').click();await page.setViewportSize({width:390,height:844});await page.waitForTimeout(200);
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ await page.screenshot({path:path.join(root,'preview/录音大纲手机.png'),fullPage:false});
+ await page.setViewportSize({width:1400,height:1300});
+ detailFailure=true;await page.locator('#detail-refresh').click();await page.waitForFunction(()=>document.querySelector('#detail-health').textContent.includes('上次整理'));assert.equal(await page.locator('.map-branch').count(),5);detailFailure=false;
+ await page.locator('#detail-back').click();await page.locator('.recording-link').first().waitFor();
+ slowFirst=true;await page.locator('.recording-link').first().click();await page.locator('#detail-back').click();await page.locator('.recording-link').nth(1).click();
+ await page.waitForFunction(()=>document.querySelector('#detail-note-badge').textContent.includes('未记录笔记'));await page.waitForTimeout(700);
+ assert.equal(await page.locator('#detail-title').textContent(),topics[1]);assert.equal(await page.locator('.map-branch').count(),4);
+ await page.locator('#detail-back').click();slowFirst=false;
+ await page.locator('#recording-search').fill('1月24日');assert.equal(await page.locator('.recording-row').count(),2);
+ await page.locator('#recording-search').fill('声音设计');assert.equal(await page.locator('.recording-row').count(),3);
+ await page.locator('#recording-search').fill('没有这个主题');assert.equal(await page.locator('.recording-row').count(),0);assert.match(await page.locator('#recording-list .library-empty').textContent(),/没有找到/);
+ await page.locator('#recording-search').fill('');
+ // Polling must retain the input focus and use the actual saved title, not a draft.
+ const updated=await (await fetch(url+'/api/status')).json();updated.library.records[0].title='2026-01-24｜13:55｜已更新的课堂标题';
+ updated.naming.jobs=[{url:recordings[0].url,status:'draft',candidate:'尚未保存的候选'}];updated.library.error='连接暂时中断';
+ await page.route('**/api/status',r=>r.fulfill({contentType:'application/json',body:JSON.stringify(updated)}));
+ await page.waitForFunction(()=>document.querySelector('.recording-title').textContent==='已更新的课堂标题');
+ assert.equal(await page.locator('.recording-row').count(),21);assert.match(await page.locator('#library-health').textContent(),/上次同步/);
+ assert.equal(await page.locator('#recording-search').evaluate(e=>document.activeElement===e),true);
+ await page.unroute('**/api/status');
+ await page.getByRole('button',{name:'课表与设置',exact:true}).click();
  assert.equal(await page.locator('#evening').inputValue(),'18:10');
  await page.getByRole('button',{name:'保存时间'}).click();await page.waitForFunction(()=>!document.querySelector('#toast').hidden);
  assert.match(await page.locator('#toast').textContent(),/暂停/);
  await page.waitForTimeout(100);assert.deepEqual(errors,[]);
  await page.locator('#toast').evaluate(e=>e.hidden=true);
  await page.screenshot({path:path.join(root,'preview/桌面版主界面.png'),fullPage:true});
- await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ await page.getByRole('button',{name:'我的录音',exact:true}).click();
+ await page.setViewportSize({width:390,height:844});await page.waitForTimeout(300);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ await page.screenshot({path:path.join(root,'preview/录音列表手机.png'),fullPage:false});
  // Exercise the desktop page bridge on simulated Tingwu markup. No real microphone calls.
  await page.route('https://tingwu.aliyun.com/**',r=>r.fulfill({contentType:'text/html; charset=utf-8',body:'<html><body><button>新建</button><button hidden id="record">开启实时记录</button></body></html>'}));
  await page.goto('https://tingwu.aliyun.com/home');
@@ -39,5 +100,5 @@ try {
  await page.evaluate(()=>document.body.innerHTML='<p>短信登录</p>');
  assert.equal(await page.evaluate(()=>window.__tingwuClassDesktopV2.step('login').action),'login-required');
  assert.equal(JSON.parse(await readFile(path.join(dir,'state.json'),'utf8')).settings.enabled,false);
- console.log('PASS: desktop service, saved 12:10/18:10 settings, request protection, desktop/mobile UI, start-click simulation, existing recording guard, login-expiry detection.');
+ console.log('PASS: in-app maps, integrated notes, transcript, cache errors, switching race, all 21 library rows, large dates/titles, search, saved-title updates, offline cache, focus preservation, mobile layout, settings, request protection and recording guards.');
 }finally{if(browser)await browser.close();child.kill();await new Promise(r=>child.once('exit',r));await rm(dir,{recursive:true,force:true});}

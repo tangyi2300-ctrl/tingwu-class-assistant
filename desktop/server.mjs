@@ -2,6 +2,9 @@ import http from 'node:http';
 import {spawn} from 'node:child_process';
 import {DEFAULT_NAMING,reconcileSavedRecordings,prepareTitle,canAutoApply,applyTitle,validateCandidate,savedURL} from './naming.mjs';
 import {listSavedRecordings} from './tingwu-api.mjs';
+import {createRecordingLibrary} from './recording-library.mjs';
+import {readRecordingDetail} from './recording-detail.mjs';
+import {createRecordingDetails} from './recording-details-store.mjs';
 import {recordingHasPriority,dailyRuns,keepDisplayAwake,SCHEDULE_POLL_MS} from './scheduler.mjs';
 import {runScheduleCycle} from './schedule-runner.mjs';
 import {recordingAdvanced,connectionProblem} from './native-status.mjs';
@@ -22,11 +25,14 @@ try {state=JSON.parse(await readFile(stateFile,'utf8'));state.settings=validate(
  state={settings:{...DEFAULTS},completed:{},logs:[],connection:null};
 }
 state.naming??=structuredClone(DEFAULT_NAMING);
+state.library??={records:[],updatedAt:null,error:null};
 for(const j of state.naming.jobs){if(j.status==='applying'){j.status='attention';j.reason='上次改名期间服务中断，请检查听悟实际标题后重试。';}}
 const preview=process.env.TINGWU_PREVIEW==='1';
 let namingBusy=false;
 let writeQueue=Promise.resolve();
 function save(){const snapshot=JSON.stringify(state,null,2);writeQueue=writeQueue.catch(()=>{}).then(async()=>{await writeFile(stateFile+'.tmp',snapshot,{mode:0o600});await rename(stateFile+'.tmp',stateFile);});return writeQueue;}
+const library=createRecordingLibrary({read:listSavedRecordings,get:()=>state.library,set:value=>state.library=value,save});
+const details=createRecordingDetails({dir:path.join(data,'recording-details'),read:readRecordingDetail,canRead:()=>!busy&&!ticking&&!namingBusy&&!library.busy&&!recordingHasPriority(state.settings,state.completed)});
 async function log(message,level='info'){state.logs=[{time:Date.now(),message,level},...(state.logs||[])].slice(0,80);await save();}
 const token=randomBytes(32).toString('hex');
 let busy=false,stopping=false,awakeProcess=null,displayProcess=null;
@@ -108,16 +114,20 @@ async function storeNamingJob(job){
 async function commitNamingJob(job){
  const result=await applyTitle(job,{write:writeRecordingTitle,save:storeNamingJob});
  await log(result.status==='renamed'?'录音已自动命名：'+result.candidate:result.reason,result.status==='renamed'?'info':'warning');
- if(result.status==='renamed')await notify('课堂录音已命名',result.candidate);
+ if(result.status==='renamed'){
+  const record=state.library.records.find(r=>r.url===result.url);
+  if(record){record.title=result.candidate;await save();}
+  await notify('课堂录音已命名',result.candidate);
+ }
  return result;
 }
 async function monitorNaming(){
- if(preview || busy || ticking || namingBusy || !state.naming.enabled || recordingHasPriority(state.settings,state.completed))return;
+ if(preview || busy || ticking || namingBusy || library.busy || details.busy || !state.naming.enabled || recordingHasPriority(state.settings,state.completed))return;
  namingBusy=true;
  try{
   // Defer naming while a live/paused recording page is open.
   const current=await controlStatus();if(current.ongoing || current.path==='/doc/record')return;
-  if(Date.now()-(state.naming.lastScannedAt||0)>=60000)state.naming=reconcileSavedRecordings(state.naming,await listSavedRecordings());
+  if(Date.now()-(state.naming.lastScannedAt||0)>=60000)state.naming=reconcileSavedRecordings(state.naming,await library.refresh());
   state.naming.lastCheckedAt=Date.now();delete state.naming.error;await save();
   const pending=state.naming.jobs.filter(j=>j.status==='waiting' && Date.now()-(j.checkedAt||0)>60000).sort((a,b)=>(a.checkedAt||0)-(b.checkedAt||0))[0];
   if(pending){
@@ -134,12 +144,22 @@ const server=http.createServer(async(req,res)=>{
  try{
   if(req.headers.host!==`${HOST}:${PORT}`)return respond(res,403,{error:'invalid host'});
   const url=new URL(req.url,origin);
-  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.8.2',runtime:{...runtime,busy,ticking,namingBusy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
+  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.10.0',runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
   if(req.method==='POST' && url.pathname.startsWith('/api/')){
    if(req.headers.origin!==origin || req.headers['x-tingwu-token']!==token || req.headers['content-type']!=='application/json')return respond(res,403,{error:'请求来源无效'});
    let raw='';for await(const c of req){raw+=c;if(raw.length>4096)return respond(res,413,{error:'请求过大'});}
    const body=JSON.parse(raw||'{}');let result;
    if(preview)throw Error('这是审查预览，不会修改听悟录音或正式设置');
+   if(url.pathname==='/api/recording-detail'){
+    const record=state.library.records.find(r=>r.transId===body.transId);
+    if(!record)return respond(res,404,{error:'录音不在已同步的列表中，请先刷新列表'});
+    return respond(res,200,{ok:true,result:await details.get(record,{refresh:body.refresh===true,poll:body.poll===true})});
+   }
+   if(url.pathname==='/api/recordings-refresh'){
+    const deferred=busy || ticking || namingBusy || details.busy || recordingHasPriority(state.settings,state.completed);
+    if(!deferred)library.refresh().catch(()=>{});
+    return respond(res,200,{ok:true,result:{deferred,refreshing:library.busy}});
+   }
    if((busy || ticking || namingBusy) && !(url.pathname==='/api/save' && body.settings?.enabled===false))throw Error('正在处理听悟任务，请稍后重试');
    switch(url.pathname){
     case '/api/naming-toggle':
@@ -150,7 +170,7 @@ const server=http.createServer(async(req,res)=>{
      namingBusy=true;
      try{
       if(!body.id){
-       const records=await listSavedRecordings();state.naming=reconcileSavedRecordings(state.naming,records);await save();
+       const records=await library.refresh();state.naming=reconcileSavedRecordings(state.naming,records);await save();
        result={message:`已核对 ${records.length} 条已保存记录，${state.naming.jobs.filter(j=>j.status==='waiting').length} 条等待命名`};break;
       }
       const job=state.naming.jobs.find(j=>j.id===body.id);

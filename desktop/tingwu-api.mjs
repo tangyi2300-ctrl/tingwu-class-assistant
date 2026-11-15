@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {chromeCall} from './chrome-process.mjs';
 import {savedURL} from './naming.mjs';
 
-const routes={getTransList:'/api/trans/request?getTransList',getTransResult:'/api/trans/getTransResult',getTransTag:'/api/tag/request?getTransTag',getAllLabInfo:'/api/lab/getAllLabInfo',syncTransTag:'/api/tag/request?syncTransTag'};
+const routes={getTransList:'/api/trans/request?getTransList',getTransResult:'/api/trans/getTransResult',getTransDocEdit:'/api/doc/getTransDocEdit',getTransTag:'/api/tag/request?getTransTag',getAllLabInfo:'/api/lab/getAllLabInfo',syncTransTag:'/api/tag/request?syncTransTag'};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 export function validateRequest(body){
  if(!routes[body.action])throw Error('不支持的听悟操作');
@@ -35,10 +35,10 @@ export function normalizeRecord(r){
  if(!/^[\w-]{1,80}$/.test(r.transId||''))throw Error('听悟返回的录音编号无效');
  return {transId:r.transId,url:`https://tingwu.aliyun.com/doc/transcripts/${r.transId}`,title:r.tag?.showName||'',fileType:r.tag?.fileType,status:r.status,recordedAt:r.showTime,duration:r.duration,wordCount:r.wordCount,keywords:Array.isArray(r.yakeKeyWord)?r.yakeKeyWord:[]};
 }
-export async function listSavedRecordings(){
+export async function listSavedRecordings(request=requestTingwu){
  const rows=[],seen=new Set();
  for(let pageNo=1;pageNo<=100;pageNo++){
-  const r=await requestTingwu({action:'getTransList',version:'1.0',filter:{status:[0],fileTypes:[],beginTime:'',endTime:'',showName:'',read:'',lang:'',client:''},preview:1,pageNo,pageSize:100});
+  const r=await request({action:'getTransList',version:'1.0',filter:{status:[0],fileTypes:[],beginTime:'',endTime:'',showName:'',read:'',lang:'',client:''},preview:1,pageNo,pageSize:100});
   if(!Array.isArray(r.data)||!Number.isFinite(r.total))throw Error('听悟记录列表格式已变化');
   for(const raw of r.data){const record=normalizeRecord(raw);if(!seen.has(record.transId)){rows.push(record);seen.add(record.transId);}}
   if(rows.length>=r.total)return rows;
