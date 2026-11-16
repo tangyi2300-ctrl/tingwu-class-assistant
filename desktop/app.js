@@ -1,4 +1,18 @@
 const $=s=>document.querySelector(s), token=$('meta[name="tingwu-token"]').content;
+const homeClockFormat=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'numeric',day:'numeric',weekday:'long',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+function updateHomeClock(){
+ const now=new Date(),p=Object.fromEntries(homeClockFormat.formatToParts(now).map(x=>[x.type,x.value]));
+ $('#today-caption').textContent=`今天 · ${p.year} 年 · 北京时间`;
+ $('#today-date').textContent=`${p.month}月${p.day}日`;
+ $('#today-date').dateTime=`${p.year}-${p.month.padStart(2,'0')}-${p.day.padStart(2,'0')}`;
+ $('#today-weekday').textContent=p.weekday;
+ $('#today-clock').textContent=`${p.hour}:${p.minute}:${p.second}`;
+ $('#today-clock').dateTime=now.toISOString();
+}
+updateHomeClock();
+setInterval(updateHomeClock,1000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)updateHomeClock();});
+window.addEventListener('pageshow',updateHomeClock);
 let state=null,toastTimer;
 let libraryViewKey='',libraryDeferred=false,libraryRequest=false,libraryAttemptAt=0,libraryRequestError='';
 const LABELS={morning:'上午课前',noon:'中午下课',afternoon:'下午课前',evening:'下午下课'};
@@ -133,11 +147,123 @@ function on(selector,fn){$(selector).addEventListener('click',async()=>{const b=
 async function save(enabled=state.settings.enabled){const settings={enabled,...Object.fromEntries(['morning','noon','afternoon','evening'].map(k=>[k,$('#'+k).value]))};const result=await api('save',{settings});toast(result.message);await refresh(true);}
 let detailSelected=null,detailGeneration=0,detailTimer,detailData=null,detailRenderKey='',detailView='map',libraryScroll=0;
 function timeLabel(seconds){if(!Number.isFinite(seconds))return '';const n=Math.floor(seconds);return (n>=3600?Math.floor(n/3600)+':':'')+String(Math.floor(n%3600/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0');}
+// Mind-map nodes keep their full source text; compact labels never replace it.
+const mindmapState={root:null,nodes:[],collapsed:new Set(),zoom:1,width:0,height:0,needsFit:true,autoWidth:true,selected:null,drawFrame:0};
+function compactMapLabel(text,max=30){
+ const value=String(text||'').replace(/\s+/g,' ').trim();if(value.length<=max)return value;
+ const clause=value.split(/[，,；;。！？]/)[0];return (clause.length>=10&&clause.length<=max?clause:value.slice(0,max))+'…';
+}
+function buildMindmap(detail,title){
+ const noteNode=(note,key,color)=>({key,kind:'note',color,text:note.text,label:compactMapLabel(note.text,32),source:'你的笔记'+(note.matchedBy==='time'?' · 按时间对应':note.matchedBy==='keywords'?' · 按关键词对应':''),children:[]});
+ const children=detail.chapters.map((chapter,i)=>{
+  const key='topic-'+i,color=i%6,points=chapter.points.map((point,j)=>({key:key+'-point-'+j,kind:'point',color,text:point,label:compactMapLabel(point),source:chapter.source==='transcript'?'转写原文摘录':'录音要点',children:[]}));
+  if(chapter.notes.length)points.push({key:key+'-notes',kind:'note-group',color,text:'你的笔记',label:`你的笔记 · ${chapter.notes.length} 段`,source:'听悟笔记区',children:chapter.notes.map(n=>noteNode(n,key+'-'+n.id,color))});
+  return {key,kind:'topic',color,text:chapter.title,label:chapter.title,source:`第 ${i+1} 章`,children:points};
+ });
+ if(detail.notes.unmatched.length)children.push({key:'supplement',kind:'topic',color:children.length%6,text:'笔记补充',label:'笔记补充',source:'暂未对应具体章节的笔记',children:detail.notes.unmatched.map(n=>noteNode(n,'supplement-'+n.id,children.length%6))});
+ mindmapState.root={key:'root',kind:'root',color:0,text:title,label:title,source:'课堂主题',children};
+ mindmapState.needsFit=true;mindmapState.autoWidth=true;mindmapState.selected=null;$('#mindmap-inspector').hidden=true;
+ $('#mindmap-count').textContent=`${detail.chapters.length} 个章节 · ${detail.notes.items.length} 段笔记`;
+}
+function mapVisibleChildren(node){return mindmapState.collapsed.has(node.key)?[]:node.children;}
+function mapExpandableNodes(node=mindmapState.root){if(!node)return [];return [...(node.kind!=='root'&&node.children.length?[node]:[]),...node.children.flatMap(n=>mapExpandableNodes(n))];}
+function updateExpandLabel(){
+ const expanded=detailView==='map'?mapExpandableNodes().some(n=>!mindmapState.collapsed.has(n.key)):[...document.querySelectorAll('.map-branch')].some(e=>e.open);
+ $('#detail-expand').textContent=expanded?'收起全部':'展开全部';
+}
+function closeMapInspector(restoreFocus=false){
+ const key=mindmapState.selected;mindmapState.selected=null;$('#mindmap-inspector').hidden=true;
+ for(const node of mindmapState.nodes)node.button?.classList.remove('is-selected');
+ if(restoreFocus)mindmapState.nodes.find(n=>n.key===key)?.button.focus({preventScroll:true});
+}
+function selectMapNode(node){
+ mindmapState.selected=node.key;for(const n of mindmapState.nodes)n.button.classList.toggle('is-selected',n.key===node.key);
+ $('#mindmap-inspector-source').textContent=node.source;$('#mindmap-inspector-title').textContent=node.kind==='root'?'课堂主题':node.kind==='point'?'录音要点':node.kind==='note'?'你的笔记':node.text;
+ const body=$('#mindmap-inspector-content');body.replaceChildren(element('p','',node.text));
+ if(node.children.length){const list=element('ul','');for(const child of node.children)list.append(element('li','',child.text));body.append(list);}
+ $('#mindmap-inspector').hidden=false;$('#mindmap-inspector-title').focus({preventScroll:true});
+}
+function scheduleMindmapDraw(){
+ cancelAnimationFrame(mindmapState.drawFrame);mindmapState.drawFrame=requestAnimationFrame(()=>{if(detailView==='map'&&!$('#detail-page').hidden)drawMindmap();});
+}
+function drawMindmap(anchorKey=null){
+ const m=mindmapState,v=$('#mindmap-viewport');if(!m.root||!v.clientWidth)return;
+ const oldAnchor=m.nodes.find(n=>n.key===anchorKey),anchor=oldAnchor?{x:(oldAnchor.x+oldAnchor.width/2)*m.zoom-v.scrollLeft,y:(oldAnchor.y+oldAnchor.height/2)*m.zoom-v.scrollTop}:null;
+ const focusKey=document.activeElement?.dataset.mapToggle;
+ const layer=$('#mindmap-nodes'),svg=$('#mindmap-lines');layer.replaceChildren();svg.replaceChildren();m.nodes=[];
+ const walk=(node,depth)=>{
+  node.depth=depth;node.width=node.kind==='root'?232:node.kind==='topic'?238:node.kind==='note-group'?220:274;
+  const button=element('button',`mind-node mind-${node.kind} map-color-${node.color}`);button.dataset.mapKey=node.key;button.title=node.text;button.setAttribute('aria-label',node.source+'：'+node.text+'。查看全文');button.style.width=node.width+'px';
+  if(node.kind==='note')button.append(element('span','mind-note-icon','✎'));
+  button.classList.toggle('is-selected',m.selected===node.key);button.append(element('span','mind-node-label',node.label));button.onclick=()=>selectMapNode(node);layer.append(button);node.button=button;
+  node.height=button.offsetHeight;node.x=[38,352,674,1028][depth]??(1028+(depth-3)*352);m.nodes.push(node);
+  const kids=mapVisibleChildren(node);for(const child of kids)walk(child,depth+1);
+  node.gap=node.kind==='root'?34:12;
+  node.childrenHeight=kids.reduce((total,c)=>total+c.span,0)+Math.max(0,kids.length-1)*node.gap;
+  node.span=Math.max(node.height,node.childrenHeight);
+ };
+ walk(m.root,0);
+ const place=(node,top)=>{
+  node.y=top+(node.span-node.height)/2;node.button.style.left=node.x+'px';node.button.style.top=node.y+'px';
+  let next=top+(node.span-node.childrenHeight)/2;for(const child of mapVisibleChildren(node)){place(child,next);next+=child.span+node.gap;}
+ };
+ place(m.root,36);m.width=Math.max(...m.nodes.map(n=>n.x+n.width))+40;m.height=m.root.span+72;
+ svg.setAttribute('width',m.width);svg.setAttribute('height',m.height);svg.setAttribute('viewBox',`0 0 ${m.width} ${m.height}`);
+ for(const parent of m.nodes){
+  for(const child of mapVisibleChildren(parent)){
+   const path=document.createElementNS('http://www.w3.org/2000/svg','path'),x1=parent.x+parent.width,y1=parent.y+parent.height/2,x2=child.x,y2=child.y+child.height/2,bend=Math.min(76,(x2-x1)*.58);
+   path.setAttribute('d',`M ${x1} ${y1} C ${x1+bend} ${y1}, ${x2-bend} ${y2}, ${x2} ${y2}`);path.setAttribute('class',`mind-edge map-color-${child.color}${parent.kind==='root'?' main-edge':''}`);svg.append(path);
+  }
+  if(parent.kind!=='root'&&parent.children.length){
+   const closed=m.collapsed.has(parent.key),toggle=element('button',`mind-toggle map-color-${parent.color}`,closed?'+':'−');toggle.dataset.mapToggle=parent.key;toggle.style.left=(parent.x+parent.width+7)+'px';toggle.style.top=(parent.y+parent.height/2-11)+'px';toggle.setAttribute('aria-expanded',String(!closed));toggle.setAttribute('aria-label',(closed?'展开':'收起')+'分支：'+parent.text);
+   toggle.onclick=()=>{closeMapInspector();if(closed)m.collapsed.delete(parent.key);else m.collapsed.add(parent.key);drawMindmap(parent.key);};layer.append(toggle);
+  }
+ }
+ $('#mindmap-canvas').style.width=m.width+'px';$('#mindmap-canvas').style.height=m.height+'px';
+ if(m.needsFit){m.needsFit=false;fitMindmap('auto');}else{applyMindmapZoom(m.zoom,false);if(anchor){const updated=m.nodes.find(n=>n.key===anchorKey);if(updated){v.scrollLeft=(updated.x+updated.width/2)*m.zoom-anchor.x;v.scrollTop=(updated.y+updated.height/2)*m.zoom-anchor.y;}}}
+ if(focusKey)[...layer.querySelectorAll('[data-map-toggle]')].find(e=>e.dataset.mapToggle===focusKey)?.focus({preventScroll:true});
+ updateExpandLabel();
+}
+function applyMindmapZoom(value,keepCenter=true){
+ const m=mindmapState,v=$('#mindmap-viewport');if(!m.root)return;
+ const center={x:(v.scrollLeft+v.clientWidth/2)/m.zoom,y:(v.scrollTop+v.clientHeight/2)/m.zoom};
+ m.zoom=Math.max(.02,Math.min(2.5,value));$('#mindmap-canvas').style.transform=`scale(${m.zoom})`;$('#mindmap-space').style.width=Math.ceil(m.width*m.zoom)+'px';$('#mindmap-space').style.height=Math.ceil(m.height*m.zoom)+'px';
+ $('#map-zoom-reset').textContent=Math.round(m.zoom*100)+'%';$('#map-zoom-out').disabled=m.zoom<=.02;$('#map-zoom-in').disabled=m.zoom>=2.5;
+ if(keepCenter){v.scrollLeft=center.x*m.zoom-v.clientWidth/2;v.scrollTop=center.y*m.zoom-v.clientHeight/2;}
+}
+function fitMindmap(mode='auto'){
+ const m=mindmapState,v=$('#mindmap-viewport');if(!m.width||!v.clientWidth)return;
+ const width=(v.clientWidth-16)/m.width,height=(v.clientHeight-16)/m.height;
+ m.autoWidth=mode==='width'||mode==='auto';const scale=mode==='all'?Math.min(width,height):mode==='auto'&&v.clientWidth<600?Math.max(.65,width):width;applyMindmapZoom(Math.min(1,scale),false);
+ v.scrollLeft=0;v.scrollTop=mode==='all'?0:Math.max(0,(m.root.y+m.root.height/2)*m.zoom-v.clientHeight/2);
+}
+function zoomMindmap(factor){mindmapState.autoWidth=false;applyMindmapZoom(mindmapState.zoom*factor);}
+$('#map-zoom-in').onclick=()=>zoomMindmap(1.2);$('#map-zoom-out').onclick=()=>zoomMindmap(1/1.2);
+$('#map-zoom-reset').onclick=()=>{mindmapState.autoWidth=false;applyMindmapZoom(1);};$('#map-fit-width').onclick=()=>fitMindmap('width');$('#map-fit-all').onclick=()=>fitMindmap('all');
+$('#mindmap-inspector-close').onclick=()=>closeMapInspector(true);
+$('#detail-map').addEventListener('keydown',e=>{if(e.key==='Escape')closeMapInspector(true);});
+const mapViewport=$('#mindmap-viewport');let mapDrag=null;
+mapViewport.addEventListener('pointerdown',e=>{
+ if(e.pointerType!=='mouse'||e.button!==0||e.target.closest('button'))return;
+ mapDrag={id:e.pointerId,x:e.clientX,y:e.clientY,left:mapViewport.scrollLeft,top:mapViewport.scrollTop};mapViewport.setPointerCapture(e.pointerId);mapViewport.classList.add('is-dragging');mapViewport.focus({preventScroll:true});e.preventDefault();
+});
+mapViewport.addEventListener('pointermove',e=>{if(mapDrag&&mapDrag.id===e.pointerId){mapViewport.scrollLeft=mapDrag.left-(e.clientX-mapDrag.x);mapViewport.scrollTop=mapDrag.top-(e.clientY-mapDrag.y);}});
+function endMapDrag(){mapDrag=null;mapViewport.classList.remove('is-dragging');}
+mapViewport.addEventListener('pointerup',endMapDrag);mapViewport.addEventListener('pointercancel',endMapDrag);mapViewport.addEventListener('lostpointercapture',endMapDrag);
+mapViewport.addEventListener('keydown',e=>{
+ if(e.target!==mapViewport)return;
+ const moves={ArrowLeft:[-100,0],ArrowRight:[100,0],ArrowUp:[0,-100],ArrowDown:[0,100]};
+ if(moves[e.key]){e.preventDefault();mapViewport.scrollBy(...moves[e.key]);}else if(['+','=','-','0'].includes(e.key)){e.preventDefault();if(e.key==='0')fitMindmap();else zoomMindmap(e.key==='-'?1/1.2:1.2);}
+});
+mapViewport.addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey){e.preventDefault();zoomMindmap(e.deltaY<0?1.08:1/1.08);}},{passive:false});
+let mapResizeWidth=0;
+new ResizeObserver(()=>{const w=mapViewport.clientWidth;if(w&&w!==mapResizeWidth){mapResizeWidth=w;if(mindmapState.needsFit)scheduleMindmapDraw();else if(mindmapState.autoWidth)fitMindmap();}}).observe(mapViewport);
+
 function setDetailView(view){
  detailView=view;
  for(const name of ['map','outline','notes','transcript']){const tab=$('#'+name+'-tab');tab.classList.toggle('selected',name===view);tab.setAttribute('aria-selected',String(name===view));tab.tabIndex=name===view?0:-1;}
- const tree=view==='map'||view==='outline';$('#detail-tree').hidden=!tree;$('#detail-tree').classList.toggle('outline-view',view==='outline');$('#detail-tree').setAttribute('aria-labelledby',view==='map'?'map-tab':'outline-tab');
- $('#detail-notes').hidden=view!=='notes';$('#detail-transcript').hidden=view!=='transcript';$('#detail-expand').hidden=!tree;
+ const tree=view==='map'||view==='outline';$('#detail-map').hidden=view!=='map';$('#detail-tree').hidden=view!=='outline';if(view==='map')scheduleMindmapDraw();
+ $('#detail-notes').hidden=view!=='notes';$('#detail-transcript').hidden=view!=='transcript';$('#detail-expand').hidden=!tree;updateExpandLabel();
 }
 function noteElement(note,associated=false){
  const item=element('div','outline-note');item.dataset.noteId=note.id;
@@ -150,7 +276,7 @@ function branchElement(chapter,index,extra=false){
  if(chapter.start!==null&&chapter.start!==undefined)content.append(element('span','branch-time',`${timeLabel(chapter.start)}${Number.isFinite(chapter.end)?' — '+timeLabel(chapter.end):''}`));
  if(chapter.points?.length){const list=element('ul','branch-points');for(const point of chapter.points)list.append(element('li','',point));content.append(list);}
  for(const note of chapter.notes||[])content.append(noteElement(note,!extra));
- branch.append(content);branch.addEventListener('toggle',()=>{$('#detail-expand').textContent=[...document.querySelectorAll('.map-branch')].some(e=>e.open)?'收起全部':'展开全部';});return branch;
+ branch.append(content);branch.addEventListener('toggle',()=>{if(detailView==='outline')updateExpandLabel();});return branch;
 }
 function renderDetailData(detail){
  const key=JSON.stringify([detail.transId,detail.updatedAt,detail.title]);if(key===detailRenderKey)return;detailRenderKey=key;detailData=detail;
@@ -160,7 +286,7 @@ function renderDetailData(detail){
  const notes=detail.notes;
  $('#detail-note-badge').textContent=notes.status==='error'?'笔记待同步':notes.items.length?`已结合 ${notes.matched} 段笔记 · 共 ${notes.items.length} 段`:'未记录笔记 · 根据录音整理';
  $('#detail-source').textContent=detail.mode==='tingwu'?'依据听悟全文概要与全部章节整理。笔记按时间或关键词归入章节，未对应的笔记单独保留。':'听悟章节尚未生成，当前为转写分段摘录；全文保留在「转写原文」中。';
- $('#map-root-title').textContent=title;$('#map-root-count').textContent=`${detail.chapters.length} 个章节 · ${notes.items.length} 段笔记`;
+ buildMindmap(detail,title);
  $('#detail-warnings').hidden=!detail.warnings.length;$('#detail-warnings').replaceChildren(...detail.warnings.map(w=>element('p','',w)));
  const branches=detail.chapters.map((c,i)=>branchElement(c,i));
  if(notes.unmatched.length)branches.push(branchElement({id:'notes-supplement',title:'笔记补充 · 暂未对应具体章节',notes:notes.unmatched,points:[]},branches.length,true));
@@ -194,7 +320,7 @@ async function loadDetail({refresh=false,poll=false}={}){
 function openDetail(record){
  if(detailSelected===record.transId&&!$('#detail-page').hidden)return;
  if(!$('#library-page').hidden)libraryScroll=window.scrollY;
- detailGeneration++;clearTimeout(detailTimer);detailSelected=record.transId;detailData=null;detailRenderKey='';detailView='map';
+ detailGeneration++;clearTimeout(detailTimer);detailSelected=record.transId;detailData=null;detailRenderKey='';detailView='map';mindmapState.collapsed.clear();mindmapState.root=null;closeMapInspector();
  showPage('detail');const r=recordingView(record);$('#detail-title').textContent=r.title;$('#detail-title').focus({preventScroll:true});
  $('#detail-meta').textContent=[r.parts&&`${r.parts.year} 年 ${Number(r.parts.month)} 月 ${Number(r.parts.day)} 日 · ${r.parts.hour}:${r.parts.minute}`,r.duration].filter(Boolean).join('　/　');
  const original=$('#detail-original');original.hidden=!r.url;if(r.url)original.href=r.url;else original.removeAttribute('href');
@@ -211,7 +337,10 @@ $('#detail-back').addEventListener('click',()=>{location.hash='library';});
 $('#detail-refresh').addEventListener('click',()=>{if(detailSelected){$('#detail-refresh').disabled=true;loadDetail({refresh:true});}});
 for(const view of ['map','outline','notes','transcript'])$('#'+view+'-tab').addEventListener('click',()=>setDetailView(view));
 $('.detail-tabs').addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const views=['map','outline','notes','transcript'];let i=views.indexOf(detailView);i=event.key==='Home'?0:event.key==='End'?3:(i+(event.key==='ArrowRight'?1:3))%4;setDetailView(views[i]);$('#'+views[i]+'-tab').focus();});
-$('#detail-expand').addEventListener('click',()=>{const rows=[...document.querySelectorAll('.map-branch')],open=!rows.some(e=>e.open);for(const row of rows)row.open=open;$('#detail-expand').textContent=open?'收起全部':'展开全部';});
+$('#detail-expand').addEventListener('click',()=>{
+ if(detailView==='map'){const nodes=mapExpandableNodes(),collapse=nodes.some(n=>!mindmapState.collapsed.has(n.key));for(const node of nodes){if(collapse)mindmapState.collapsed.add(node.key);else mindmapState.collapsed.delete(node.key);}closeMapInspector();mindmapState.needsFit=true;drawMindmap();}
+ else{const rows=[...document.querySelectorAll('.map-branch')],open=!rows.some(e=>e.open);for(const row of rows)row.open=open;updateExpandLabel();}
+});
 
 $('#schedule-form').addEventListener('submit',async e=>{e.preventDefault();try{await save();}catch(e){toast(e.message);}});
 on('#naming-toggle',async()=>{toast((await api('naming-toggle',{enabled:!state.naming.enabled})).message);});

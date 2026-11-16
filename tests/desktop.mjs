@@ -44,21 +44,32 @@ try {
   const detail=detailFixture(record,{withNotes:record.transId==='demo-0'});
   await route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:{status:detailFailure?'error':'ready',error:detailFailure?'网络暂时中断':null,detail}})});
  });
- await page.locator('.recording-link').first().click();await page.locator('.map-branch').first().waitFor();
+ await page.locator('.recording-link').first().click();await page.locator('.mind-root').waitFor();
  assert.equal(await page.locator('#detail-page').isVisible(),true);assert.equal(await page.locator('#library-page').isVisible(),false);
  assert.equal(await page.context().pages().length,1);assert.equal(await page.locator('.map-branch').count(),5);
  assert.match(await page.locator('#detail-note-badge').textContent(),/已结合 2 段笔记/);
  assert.match(await page.locator('#map-branches').textContent(),/周五记得带读卡器/);
  assert.match(await page.locator('.map-branch').first().textContent(),/构图先确定主体/);
- await page.screenshot({path:path.join(root,'preview/录音思维导图.png'),fullPage:false});
- await page.locator('#detail-expand').click();assert.equal(await page.locator('.map-branch[open]').count(),0);
- await page.locator('#detail-expand').click();assert.equal(await page.locator('.map-branch[open]').count(),5);
- await page.locator('#outline-tab').click();assert.equal(await page.locator('.map-root').isVisible(),false);
+ assert.equal(await page.locator('.mind-node').count(),19);assert.equal(await page.locator('.mind-edge').count(),18);
+ assert.equal(await page.locator('.mind-note').count(),3);
+ const geometry=await page.locator('.mind-node').evaluateAll(nodes=>nodes.map(n=>({x:n.offsetLeft,y:n.offsetTop,w:n.offsetWidth,h:n.offsetHeight})));
+ for(let i=0;i<geometry.length;i++)for(let j=i+1;j<geometry.length;j++){const a=geometry[i],b=geometry[j];assert.equal(a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y,false,'map nodes must not overlap');}
+ const fullNote=await page.locator('.mind-note').first().getAttribute('title');await page.locator('.mind-note').first().click();assert.equal(await page.locator('#mindmap-inspector').isVisible(),true);assert.ok((await page.locator('#mindmap-inspector-content').textContent()).includes(fullNote));await page.locator('#mindmap-inspector-close').click();
+ await page.locator('[data-map-toggle="topic-0"]').click();assert.equal(await page.locator('[data-map-toggle="topic-0"]').getAttribute('aria-expanded'),'false');assert.equal(await page.locator('.mind-node').count(),15);
+ await page.locator('[data-map-toggle="topic-0"]').click();assert.equal(await page.locator('.mind-node').count(),19);
+ await page.locator('#detail-expand').click();assert.equal(await page.locator('.mind-node').count(),6);
+ await page.locator('#detail-expand').click();assert.equal(await page.locator('.mind-node').count(),19);
+ await page.locator('#map-zoom-reset').click();await page.locator('#map-zoom-in').click();assert.equal(await page.locator('#map-zoom-reset').textContent(),'120%');await page.locator('#map-zoom-out').click();assert.equal(await page.locator('#map-zoom-reset').textContent(),'100%');
+ const viewport=page.locator('#mindmap-viewport');await viewport.scrollIntoViewIfNeeded();await viewport.evaluate(e=>{e.scrollLeft=80;e.scrollTop=100;});
+ const beforeDrag=await viewport.evaluate(e=>e.scrollLeft),rect=await viewport.boundingBox();await page.mouse.move(rect.x+230,rect.y+5);await page.mouse.down();await page.mouse.move(rect.x+160,rect.y+5,{steps:5});await page.mouse.up();assert.ok(await viewport.evaluate(e=>e.scrollLeft)>beforeDrag);
+ await page.locator('#map-fit-all').click();await page.locator('#detail-map').screenshot({path:path.join(root,'preview/录音思维导图.png')});
+ await page.locator('#outline-tab').click();assert.equal(await page.locator('#detail-map').isVisible(),false);assert.equal(await page.locator('.map-branch[open]').count(),5);
+
  await page.locator('#notes-tab').click();assert.equal(await page.locator('#detail-notes .outline-note').count(),3);
  await page.locator('#transcript-tab').click();assert.equal(await page.locator('.transcript-row').count(),2);
  await page.locator('#map-tab').click();await page.setViewportSize({width:390,height:844});await page.waitForTimeout(200);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
- await page.screenshot({path:path.join(root,'preview/录音大纲手机.png'),fullPage:false});
+ await page.locator('#map-fit-width').click();await page.locator('#detail-map').screenshot({path:path.join(root,'preview/录音大纲手机.png')});
  await page.setViewportSize({width:1400,height:1300});
  detailFailure=true;await page.locator('#detail-refresh').click();await page.waitForFunction(()=>document.querySelector('#detail-health').textContent.includes('上次整理'));assert.equal(await page.locator('.map-branch').count(),5);detailFailure=false;
  await page.locator('#detail-back').click();await page.locator('.recording-link').first().waitFor();
