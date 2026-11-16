@@ -88,7 +88,16 @@ try {
  await page.waitForFunction(()=>document.querySelector('.recording-title').textContent==='已更新的课堂标题');
  assert.equal(await page.locator('.recording-row').count(),21);assert.match(await page.locator('#library-health').textContent(),/上次同步/);
  assert.equal(await page.locator('#recording-search').evaluate(e=>document.activeElement===e),true);
+ // A manually started session must not appear as an automatic-start success.
+ updated.settings.enabled=true;
+ updated.sessions=[{kind:'afternoon',status:'confirmed',source:'existing',confirmedAt:Date.now(),health:{status:'recording',checkedAt:Date.now()}}];
+ await page.waitForFunction(()=>document.querySelector('#run-health').textContent.includes('本次未自动点击开始'));
+ assert.equal(await page.locator('#run-health').isVisible(),true);
+ updated.sessions[0].health={status:'stalled',checkedAt:Date.now(),message:'计时未继续增加'};
+ await page.waitForFunction(()=>document.querySelector('#run-health').classList.contains('warning'));
+ assert.match(await page.locator('#run-health').textContent(),/计时未继续增加/);
  await page.unroute('**/api/status');
+ await page.waitForFunction(()=>document.querySelector('#status-title').textContent==='自动课表已暂停');
  await page.getByRole('button',{name:'课表与设置',exact:true}).click();
  assert.equal(await page.locator('#evening').inputValue(),'18:10');
  await page.getByRole('button',{name:'保存时间'}).click();await page.waitForFunction(()=>!document.querySelector('#toast').hidden);

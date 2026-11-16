@@ -17,7 +17,7 @@ export function nativeStatus(snapshot={}){
  return {ongoing,live,paused,elapsedSeconds,loginRequired,microphoneDenied:!!snapshot.microphoneDenied || labels.some(t=>/麦克风权限/.test(t)),homeReady:!!snapshot.homeReady || labels.some(t=>['开启实时记录','开始录音','开始记录'].includes(t)),path:snapshot.url?new URL(snapshot.url).pathname:'',url:snapshot.url||'',noTab:!!snapshot.noTab,browserClosed:!!snapshot.browserClosed,locked:!!snapshot.locked,controlMode:'accessibility',labels};
 }
 export function recordingAdvanced(before,after){
- return !!before && !after.paused && after.live && after.path==='/doc/record' && before.tabId===after.tabId && before.windowId===after.windowId && before.elapsedSeconds!==null && after.elapsedSeconds!==null && after.elapsedSeconds>before.elapsedSeconds;
+ return !!before && before.live && !before.paused && before.path==='/doc/record' && !after.paused && after.live && after.path==='/doc/record' && before.tabId===after.tabId && before.windowId===after.windowId && before.elapsedSeconds!==null && after.elapsedSeconds!==null && after.elapsedSeconds>before.elapsedSeconds;
 }
 export function connectionProblem(c){
  if(c.backgroundReady===false)return 'Chrome 后台脚本权限未开启，无法在切换标签页后静默启动';

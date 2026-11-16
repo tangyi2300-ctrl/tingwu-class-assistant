@@ -7,7 +7,8 @@ import {readRecordingDetail} from './recording-detail.mjs';
 import {createRecordingDetails} from './recording-details-store.mjs';
 import {recordingHasPriority,dailyRuns,keepDisplayAwake,SCHEDULE_POLL_MS} from './scheduler.mjs';
 import {runScheduleCycle} from './schedule-runner.mjs';
-import {recordingAdvanced,connectionProblem} from './native-status.mjs';
+import {connectionProblem} from './native-status.mjs';
+import {ensureRecordingStarted,verifyRecordingHealth} from './recording-start.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {homedir} from 'node:os';
@@ -58,36 +59,25 @@ async function check(){
 async function startRecording(attemptId=null,deadline=Infinity){
  if(busy || namingBusy)throw Error('正在处理听悟任务，请稍候');
  busy=true;stopping=false;
- const until=Math.min(deadline,Date.now()+90000);
- let previous=null,lastError=null;
  try {
-  await openTingwu();
-  const id=attemptId || randomBytes(12).toString('hex');
-  while(Date.now()<until){
-   if(stopping)return {cancelled:true};
-   let result;
-   try{result=await controlStep(id,until);lastError=null;}
-   catch(e){lastError=e;await new Promise(r=>setTimeout(r,1500));continue;}
-   if(result.action==='ongoing'){
-    state.connection={...result,ok:!connectionProblem(result),error:connectionProblem(result)||undefined,checkedAt:Date.now()};
-    if(result.paused)throw Error('已有录音处于暂停状态，请手动恢复；不会把暂停当作录音成功');
-    if(recordingAdvanced(previous,result)){
-     const message='已核对听悟录音计时持续增加，请在下课时手动结束';
-     if(!attemptId)await log(message);
-     await notify('听悟已开始录音',message);
-     return {message,confirmed:true,elapsedSeconds:result.elapsedSeconds};
-    }
-    previous=result;
-   }else{
-    previous=null;
-    if(result.action==='login-required')throw Error('听悟登录已失效，请在 Chrome 完成登录验证；恢复后会在课内自动重试');
-    if(result.action==='clicked')await log('已自动点击「'+result.label+'」，正在核对录音计时');
+  const result=await ensureRecordingStarted({attemptId:attemptId||randomBytes(12).toString('hex'),deadline,prepare:openTingwu,step:controlStep,cancelled:()=>stopping,
+   priorStartClickedAt:attemptId?state.sessionRuns?.[attemptId]?.startClickedAt:null,
+   onSample:async sample=>{state.connection={...sample,ok:!connectionProblem(sample),error:connectionProblem(sample)||undefined,checkedAt:Date.now()};},
+   onClick:async click=>{
+    if(attemptId&&click.isStart&&state.sessionRuns?.[attemptId]){state.sessionRuns[attemptId].startClickedAt=click.at;await save();}
+    await log('已自动点击「'+click.label+'」，正在核对录音计时');
    }
-   await new Promise(r=>setTimeout(r,1000));
-  }
-  throw lastError || Error('尚未确认录音计时持续增加，将重新定位后重试');
+  });
+  if(result.cancelled)return result;
+  const message=result.source==='automatic'?'已自动点击开始，并核对听悟录音计时持续增加；下课请手动结束':'检测到已有录音，已核对计时持续增加；本次未自动点击开始';
+  if(!attemptId)await log(message);
+  await notify(result.source==='automatic'?'听悟已自动开始录音':'听悟已有录音正在进行',message);
+  return {...result,message};
  }catch(e){if(!attemptId){await log(e.message,'warning');await notify('录音需要处理',e.message);}throw e;}
  finally{busy=false;}
+}
+async function verifyScheduledRecording(){
+ return verifyRecordingHealth({read:async()=>{const c=await check();const problem=connectionProblem(c);if(problem)throw Error(problem);return c;}});
 }
 async function reminder(){
  await log('已询问是否结束录音；未执行停止操作');
@@ -103,6 +93,7 @@ async function tick(){
  try{
   await runScheduleCycle({state,save,start:startRecording,remind:reminder,log,
    cancelled:()=>!state.settings.enabled || stopping,
+   verifyRecording:verifyScheduledRecording,
    preflight:async()=>{await openTingwu();const c=await check();const problem=connectionProblem(c);if(problem)throw Error(problem);},
    notice:async(message,urgent)=>{await notify(urgent?'听课搭子：录音尚未确认':'听课搭子：自动录音需要检查',message);}
   });
@@ -144,7 +135,7 @@ const server=http.createServer(async(req,res)=>{
  try{
   if(req.headers.host!==`${HOST}:${PORT}`)return respond(res,403,{error:'invalid host'});
   const url=new URL(req.url,origin);
-  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.10.0',runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
+  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.11.0',runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
   if(req.method==='POST' && url.pathname.startsWith('/api/')){
    if(req.headers.origin!==origin || req.headers['x-tingwu-token']!==token || req.headers['content-type']!=='application/json')return respond(res,403,{error:'请求来源无效'});
    let raw='';for await(const c of req){raw+=c;if(raw.length>4096)return respond(res,413,{error:'请求过大'});}

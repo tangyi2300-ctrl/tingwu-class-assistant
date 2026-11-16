@@ -68,3 +68,28 @@ test('pause while an attempt is running cancels completion and later attempts',a
  const h=harness();h.start=async()=>{h.starts++;h.state.settings.enabled=false;return {cancelled:true};};h.cancelled=()=>!h.state.settings.enabled;
  await h.cycle();h.advance('10:05:00');await h.cycle();assert.equal(h.starts,1);assert.equal(h.state.completed['2026-11-16:morning'],undefined);
 });
+
+test('all five weekday afternoons preflight at 13:45 and start at 13:50 before 14:00',async()=>{
+ for(let day=16;day<=20;day++){
+  const h=harness();let current=new Date(`2026-11-${day}T13:45:00+08:00`);h.now=()=>current;
+  await h.cycle();assert.equal(h.preflights,1);assert.equal(h.starts,0);
+  current=new Date(`2026-11-${day}T13:50:00+08:00`);h.start=async()=>{h.starts++;return {confirmed:true,source:'automatic',elapsedSeconds:3,startClickedAt:current.getTime()};};await h.cycle();
+  const run=h.state.sessionRuns[`2026-11-${day}:afternoon`];assert.equal(run.source,'automatic');assert.equal(run.status,'confirmed');assert.ok(run.confirmedAt<new Date(`2026-11-${day}T14:00:00+08:00`).getTime());
+  h.reload();current=new Date(`2026-11-${day}T13:59:00+08:00`);await h.cycle();assert.equal(h.starts,1);
+ }
+});
+test('late afternoon wake and temporary failures retry before and after 14:00',async()=>{
+ for(const at of ['13:50:00','13:52:00','13:58:00','13:59:50','14:00:00']){const h=harness(at);await h.cycle();assert.equal(h.starts,1);assert.equal(h.state.sessionRuns['2026-11-16:afternoon'].status,'confirmed');}
+ const h=harness('13:57:00');h.start=async()=>{h.starts++;throw Error('loading');};await h.cycle();h.advance('13:57:04');await h.cycle();assert.equal(h.starts,1);h.advance('13:57:06');h.start=async()=>{h.starts++;return {confirmed:true,source:'automatic',elapsedSeconds:4};};await h.cycle();assert.equal(h.starts,2);
+});
+test('13:58 warning arrives before class even when the next attempt fails',async()=>{
+ const h=harness('13:58:00');h.start=async()=>{assert.ok(h.notices.some(n=>n.u&&n.m.includes('不足两分钟')));throw Error('offline');};await h.cycle();assert.ok(h.state.alerted['2026-11-16:afternoon:before-class']);
+});
+test('an existing manual recording is not logged as an automatic start',async()=>{
+ const h=harness('13:50:00');h.start=async()=>({confirmed:true,source:'existing',elapsedSeconds:50});await h.cycle();assert.equal(h.state.sessionRuns['2026-11-16:afternoon'].source,'existing');assert.ok(h.logs.some(x=>x.m.includes('本次未自动点击')));assert.ok(!h.logs.some(x=>x.m.includes('自动开启成功')));
+});
+test('30-second preclass health checks detect a stop without restarting a manually ended recording',async()=>{
+ const h=harness('13:50:00');let checks=0;h.verifyRecording=async()=>{checks++;return {status:'recording',elapsedSeconds:40};};await h.cycle();h.advance('13:50:10');await h.cycle();assert.equal(checks,0);h.advance('13:50:30');await h.cycle();assert.equal(checks,1);
+ h.advance('13:51:00');h.verifyRecording=async()=>{checks++;return {status:'not-recording',message:'已结束'};};await h.cycle();assert.equal(h.starts,1);assert.ok(h.state.completed['2026-11-16:afternoon']);assert.equal(h.state.sessionRuns['2026-11-16:afternoon'].health.status,'not-recording');assert.ok(h.notices.some(n=>n.m.includes('复查未通过')));
+ h.advance('13:58:00');await h.cycle();assert.ok(h.state.alerted['2026-11-16:afternoon:before-class']);assert.equal(h.starts,1);h.advance('14:02:00');const previous=checks;await h.cycle();assert.equal(checks,previous);assert.equal(h.starts,1);
+});

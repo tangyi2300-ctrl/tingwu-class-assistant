@@ -1,4 +1,4 @@
-export const DEFAULTS = Object.freeze({enabled: false, morning: '09:55', noon: '12:10', afternoon: '13:55', evening: '18:10'});
+export const DEFAULTS = Object.freeze({enabled: false, morning: '09:55', noon: '12:10', afternoon: '13:50', evening: '18:10'});
 export const LABELS = {morning: '上午课前', noon: '中午下课', afternoon: '下午课前', evening: '下午下课'};
 export function validate(value) {
   const s = {...DEFAULTS, ...value};

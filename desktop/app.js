@@ -36,8 +36,13 @@ function render(fields=false){
  const pending=(state.sessions||[]).find(s=>['starting','retrying','pending','missed'].includes(s.status));
  const confirmed=(state.sessions||[]).filter(s=>s.status==='confirmed');
  const blocked=state.connection && !state.connection.ok;
- $('#run-health').textContent=!on?'':blocked?'课表已启用，但自动启动尚未就绪，请查看连接提示。':pending?`${LABELS[pending.kind]}：${pending.status==='missed'?'本节课未确认录音':pending.status==='starting'?'正在启动并核对录音计时':'尚未确认录音，课内自动重试'}${pending.error?' · '+pending.error:''}`:confirmed.length?`今天已确认 ${confirmed.length} 次启动；手动结束后不会重复开启。`:'后台已就绪 · 到点启动并核对计时 · 失败会提醒并在课内重试';
- $('#run-health').classList.toggle('warning',!!pending||!!blocked);
+ const healthIssue=confirmed.find(s=>s.health&&s.health.status!=='recording'&&Date.now()-s.health.checkedAt<300000);
+ const recent=[...confirmed].sort((a,b)=>(b.health?.checkedAt||b.confirmedAt||0)-(a.health?.checkedAt||a.confirmedAt||0))[0];
+ const checkedTime=recent?.health?.checkedAt?new Date(recent.health.checkedAt).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit'}):'';
+ const sourceLabel=recent?.source==='automatic'?'程序自动开启并确认':recent?.source==='existing'?'已检测到已有录音，本次未自动点击开始':'已确认有录音，启动来源未记录';
+ $('#run-health').textContent=!on?'':healthIssue?`${LABELS[healthIssue.kind]}：${healthIssue.health.message}；请查看听悟。`:blocked?'课表已启用，但自动启动尚未就绪，请查看连接提示。':pending?`${LABELS[pending.kind]}：${pending.status==='missed'?'本节课未确认录音':pending.status==='starting'?'正在启动并核对录音计时':'尚未确认录音，课内自动重试'}${pending.error?' · '+pending.error:''}`:recent?`${LABELS[recent.kind]}：${sourceLabel}${checkedTime?' · 最近核对 '+checkedTime:''}。手动结束后不会重复开启。`:'后台已就绪 · 到点启动并核对计时 · 课前每 30 秒复查';
+ $('#run-health').classList.toggle('warning',!!pending||!!blocked||!!healthIssue);
+ $('#run-health').classList.toggle('session-evidence',!!recent);
  renderNaming();
  renderLibrary();
  $('#logs').replaceChildren(...(state.logs.length?state.logs.slice(0,8):[{message:'还没有运行记录。'}]).map(item=>{const li=document.createElement('li');li.className=item.level||'';li.textContent=(item.time?new Date(item.time).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'　':'')+item.message;return li;}));

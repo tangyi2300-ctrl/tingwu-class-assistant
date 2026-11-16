@@ -20,7 +20,7 @@ test('failed starts retry quickly around class start, then back off; confirmed s
 test('wake after 10:00 and 14:00 catches up, but lunch/evening never starts recording',()=>{
  for(const s of ['09:59:50','10:00:00','11:59:59'])assert.equal(runnableEvents(settings,{}, {},time(s))[0].kind,'morning');
  for(const s of ['14:00:00','17:59:59'])assert.equal(runnableEvents(settings,{}, {},time(s))[0].kind,'afternoon');
- for(const s of ['12:00:00','12:09:00','13:54:59','18:00:00','23:00:00'])assert.deepEqual(runnableEvents(settings,{}, {},time(s)),[]);
+ for(const s of ['12:00:00','12:09:00','13:49:59','18:00:00','23:00:00'])assert.deepEqual(runnableEvents(settings,{}, {},time(s)),[]);
  assert.equal(startDeadline({kind:'morning',date:'2026-11-16'}),time('12:00:00').getTime());
 });
 test('end reminders remain 12:10 and 18:10',()=>{assert.equal(runnableEvents(settings,{}, {},time('12:10:00'))[0].kind,'noon');assert.equal(runnableEvents(settings,{}, {},time('18:10:00'))[0].kind,'evening');});
@@ -42,4 +42,8 @@ test('display wake assertion is scoped to weekday classroom hours',async()=>{
  assert.equal(keepDisplayAwake(settings,time('09:50:00')),true);assert.equal(keepDisplayAwake(settings,time('12:00:00')),false);
  assert.equal(keepDisplayAwake(settings,time('13:50:00')),true);assert.equal(keepDisplayAwake(settings,time('18:00:00')),false);
  assert.equal(keepDisplayAwake(DEFAULTS,time('10:00:00')),false);
+});
+
+test('preclass recording checks retain priority after startup is confirmed',()=>{
+ const completed={'2026-11-16:afternoon':1};assert.equal(recordingHasPriority(settings,completed,time('13:58:00')),true);assert.equal(recordingHasPriority(settings,completed,time('14:00:59')),true);assert.equal(recordingHasPriority(settings,completed,time('14:01:00')),false);
 });

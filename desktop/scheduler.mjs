@@ -21,7 +21,7 @@ export function preflightEvents(settings,completed={},now=new Date(),attempts={}
  });
 }
 export function recordingHasPriority(settings,completed={},now=new Date()){
- return sessions(settings,now).some(e=>now.getTime()>=e.plannedAt-300000 && now.getTime()<e.deadline && !completed[e.id]);
+ return sessions(settings,now).some(e=>now.getTime()>=e.plannedAt-300000 && now.getTime()<e.deadline && (!completed[e.id] || now.getTime()<e.classAt+60000));
 }
 export function dailyRuns(settings,state,now=new Date()){
  return sessions(settings,now).map(e=>({...e,status:state.completed?.[e.id]?'confirmed':now.getTime()>=e.deadline?'missed':now.getTime()<e.plannedAt?'scheduled':'pending',...state.sessionRuns?.[e.id]}));

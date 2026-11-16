@@ -4,7 +4,7 @@ import {DEFAULTS, validate, dueEvents, nextEvent, clockParts} from '../extension
 const s={...DEFAULTS,enabled:true};
 const date=t=>new Date(t+'+08:00');
 test('default paused: no scheduled action',()=>assert.deepEqual(dueEvents(DEFAULTS,{},date('2026-11-11T09:55:00')),[]));
-test('weekday four events and their exact times',()=>{for(const [kind,time] of [['morning','09:55'],['noon','12:10'],['afternoon','13:55'],['evening','18:10']]) assert.equal(dueEvents(s,{},date('2026-11-11T'+time+':00'))[0].kind,kind);});
+test('weekday four events and their exact times',()=>{for(const [kind,time] of [['morning','09:55'],['noon','12:10'],['afternoon','13:50'],['evening','18:10']]) assert.equal(dueEvents(s,{},date('2026-11-11T'+time+':00'))[0].kind,kind);});
 test('does not start before schedule',()=>assert.equal(dueEvents(s,{},date('2026-11-11T09:54:59')).length,0));
 test('weekends never execute',()=>{for(const d of ['14','15'])assert.equal(dueEvents(s,{},date(`2026-11-${d}T09:55:00`)).length,0);});
 test('late wakeup does not start a recording',()=>assert.equal(dueEvents(s,{},date('2026-11-11T10:01:00')).length,0));
