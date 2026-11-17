@@ -11,7 +11,7 @@ const dir=await mkdtemp(path.join(tmpdir(),'tingwu-desktop-test-'));
 // Fictional recordings only. Never load the user's account in UI tests.
 const topics=['镜头语言与叙事节奏','角色设计：从轮廓到性格表达','场景光影与色彩关系','AI 视频工作流与提示词拆解','短片分镜与画面构图','声音设计与情绪表达','人物动作与表演细节'];
 const recordings=Array.from({length:21},(_,i)=>({transId:`demo-${i}`,url:`https://tingwu.aliyun.com/doc/transcripts/demo-${i}`,title:`2026-01-${String(24-Math.floor(i/2)).padStart(2,'0')}｜${i%2?'09:55':'13:55'}｜${topics[i%topics.length]}`,recordedAt:Date.parse(`2026-01-${String(24-Math.floor(i/2)).padStart(2,'0')}T${i%2?'09:55':'13:55'}:00+08:00`),duration:3600+i*65,status:0}));
-await writeFile(path.join(dir,'state.json'),JSON.stringify({settings:{enabled:false,morning:'09:55',noon:'12:10',afternoon:'13:55',evening:'18:10'},completed:{},logs:[],connection:null,library:{records:recordings,updatedAt:Date.now(),error:null}}));
+await writeFile(path.join(dir,'state.json'),JSON.stringify({settings:{enabled:false,morning:'09:55',noon:'12:10',afternoon:'13:50',evening:'18:10'},completed:{},logs:[],connection:null,library:{records:recordings,updatedAt:Date.now(),error:null}}));
 const child=spawn(process.execPath,[path.join(root,'desktop/server.mjs')],{env:{...process.env,TINGWU_DATA_DIR:dir,TINGWU_PORT:"18767"},stdio:'pipe'});
 let browser;
 try {
@@ -25,12 +25,16 @@ try {
  assert.equal((await fetch(url+'/api/recording-detail',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
  assert.equal((await fetch(url+'/api/recordings-refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
  browser=await chromium.launch({executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
- const page=await browser.newPage({viewport:{width:1400,height:1300}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const page=await browser.newPage({viewport:{width:1400,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/api/recordings-refresh',r=>r.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:{refreshing:false}})}));
  await page.goto(url);await page.waitForFunction(()=>document.querySelector('#noon').value==='12:10');
  await page.locator('.recording-row').first().waitFor();
  assert.equal(await page.locator('#library-page').isVisible(),true);assert.equal(await page.locator('#settings-page').isVisible(),false);
  assert.equal(await page.locator('.recording-row').count(),21);
+ assert.equal(await page.locator('.recording-group').count(),11);
+ assert.equal(await page.locator('.recording-group').first().locator('.recording-row').count(),2);
+ assert.ok((await page.locator('.recording-row').first().boundingBox()).y<460,'the first lesson must be easy to find without scrolling');
+ assert.equal(await page.locator('#afternoon-start-display').textContent(),'13:50');
  assert.equal(await page.locator('.recording-title').first().textContent(),topics[0]);
  assert.equal(await page.locator('.recording-day').first().textContent(),'24');
  assert.equal(await page.locator('.recording-link').first().getAttribute('href'),'#recording/'+recordings[0].transId);
@@ -44,7 +48,7 @@ try {
   const detail=detailFixture(record,{withNotes:record.transId==='demo-0'});
   await route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:{status:detailFailure?'error':'ready',error:detailFailure?'网络暂时中断':null,detail}})});
  });
- await page.locator('.recording-link').first().click();await page.locator('.mind-root').waitFor();
+ await page.locator('.recording-outline').first().click();await page.locator('.mind-root').waitFor();
  assert.equal(await page.locator('#detail-page').isVisible(),true);assert.equal(await page.locator('#library-page').isVisible(),false);
  assert.equal(await page.context().pages().length,1);assert.equal(await page.locator('.map-branch').count(),5);
  assert.match(await page.locator('#detail-note-badge').textContent(),/已结合 2 段笔记/);
@@ -96,9 +100,17 @@ try {
  updated.sessions[0].health={status:'stalled',checkedAt:Date.now(),message:'计时未继续增加'};
  await page.waitForFunction(()=>document.querySelector('#run-health').classList.contains('warning'));
  assert.match(await page.locator('#run-health').textContent(),/计时未继续增加/);
+ assert.equal(await page.locator('#afternoon-session-state').textContent(),'状态需检查');
+ updated.sessions[0].health={status:'recording',checkedAt:Date.now()-3600000};
+ updated.sessions[0].source='automatic';
+ await page.waitForFunction(()=>document.querySelector('#afternoon-session-state').textContent==='已自动开启');
+ assert.ok(!(await page.locator('.status-bar').textContent()).includes('正在录音'),'past confirmations must not imply a currently active microphone');
  await page.unroute('**/api/status');
  await page.waitForFunction(()=>document.querySelector('#status-title').textContent==='自动课表已暂停');
  await page.getByRole('button',{name:'课表与设置',exact:true}).click();
+ assert.equal(await page.locator('#check').isVisible(),false);
+ assert.equal(await page.locator('#logs').isVisible(),false);
+ await page.locator('.connection-fold>summary').click();assert.equal(await page.locator('#check').isVisible(),true);await page.locator('.connection-fold>summary').click();
  assert.equal(await page.locator('#evening').inputValue(),'18:10');
  await page.getByRole('button',{name:'保存时间'}).click();await page.waitForFunction(()=>!document.querySelector('#toast').hidden);
  assert.match(await page.locator('#toast').textContent(),/暂停/);

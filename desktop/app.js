@@ -39,13 +39,31 @@ function render(fields=false){
  const healthIssue=confirmed.find(s=>s.health&&s.health.status!=='recording'&&Date.now()-s.health.checkedAt<300000);
  const recent=[...confirmed].sort((a,b)=>(b.health?.checkedAt||b.confirmedAt||0)-(a.health?.checkedAt||a.confirmedAt||0))[0];
  const checkedTime=recent?.health?.checkedAt?new Date(recent.health.checkedAt).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit'}):'';
- const sourceLabel=recent?.source==='automatic'?'程序自动开启并确认':recent?.source==='existing'?'已检测到已有录音，本次未自动点击开始':'已确认有录音，启动来源未记录';
- $('#run-health').textContent=!on?'':healthIssue?`${LABELS[healthIssue.kind]}：${healthIssue.health.message}；请查看听悟。`:blocked?'课表已启用，但自动启动尚未就绪，请查看连接提示。':pending?`${LABELS[pending.kind]}：${pending.status==='missed'?'本节课未确认录音':pending.status==='starting'?'正在启动并核对录音计时':'尚未确认录音，课内自动重试'}${pending.error?' · '+pending.error:''}`:recent?`${LABELS[recent.kind]}：${sourceLabel}${checkedTime?' · 最近核对 '+checkedTime:''}。手动结束后不会重复开启。`:'后台已就绪 · 到点启动并核对计时 · 课前每 30 秒复查';
+ const sourceLabel=recent?.source==='automatic'?'已自动开启':recent?.source==='existing'?'已有录音，本次未自动点击开始':'已确认开始，启动来源未记录';
+ $('#run-health').textContent=!on?'':healthIssue?`${LABELS[healthIssue.kind]}：${healthIssue.health.message}；请查看听悟。`:blocked?'自动启动需要检查，请在「课表与设置 → 连接与权限」查看。':pending?`${LABELS[pending.kind]}：${pending.status==='missed'?'本节课未确认录音':pending.status==='starting'?'正在启动并核对计时':'尚未确认录音，正在重试'}${pending.error?' · '+pending.error:''}`:recent?`${LABELS[recent.kind]}${sourceLabel}${checkedTime?' · 最近核对 '+checkedTime:''}`:'';
  $('#run-health').classList.toggle('warning',!!pending||!!blocked||!!healthIssue);
  $('#run-health').classList.toggle('session-evidence',!!recent);
+ renderTodaySchedule();
  renderNaming();
  renderLibrary();
  $('#logs').replaceChildren(...(state.logs.length?state.logs.slice(0,8):[{message:'还没有运行记录。'}]).map(item=>{const li=document.createElement('li');li.className=item.level||'';li.textContent=(item.time?new Date(item.time).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'　':'')+item.message;return li;}));
+}
+function renderTodaySchedule(){
+ const weekday=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Shanghai',weekday:'short'}).format(new Date());
+ const weekend=weekday==='Sat'||weekday==='Sun';
+ for(const kind of ['morning','afternoon']){
+  $('#'+kind+'-start-display').textContent=state.settings[kind];
+  const run=(state.sessions||[]).find(s=>s.kind===kind),label=$('#'+kind+'-session-state');
+  let text=weekend?'周末不启动':!state.settings.enabled?'课表已暂停':'等待启动',tone='';
+  if(!weekend&&state.settings.enabled&&run){
+   if(run.status==='confirmed'){
+    text=run.source==='automatic'?'已自动开启':run.source==='existing'?'检测到已有录音':'已确认开始';tone='confirmed';
+    if(run.health&&run.health.status!=='recording'&&Date.now()-run.health.checkedAt<300000){text='状态需检查';tone='warning';}
+   }else if(['starting','pending','retrying','missed'].includes(run.status)){text={starting:'正在启动',pending:'等待确认',retrying:'正在重试',missed:'未确认开始'}[run.status];tone='warning';}
+  }
+  label.textContent=text;label.className='session-state'+(tone?' '+tone:'');
+  label.title=run?.confirmedAt?'启动确认于 '+new Date(run.confirmedAt).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit'})+'；不代表当前仍在录音。':'';
+ }
 }
 const recordingDateFormat=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',weekday:'long',hourCycle:'h23'});
 function recordingView(record){
@@ -74,7 +92,7 @@ function renderLibrary(){
  $('#recording-count').textContent=library.updatedAt?`${records.length} 条`:'—';
  $('#recordings-refresh').disabled=!!syncing;
  $('#recording-list').setAttribute('aria-busy',String(!!syncing));
- $('#library-results').textContent=query?`找到 ${visible.length} 条`:`共 ${records.length} 条录音`;
+ $('#library-results').textContent=query?`找到 ${visible.length} 条`:'最新在前';
  let health=library.updatedAt?`已同步听悟 · ${new Date(library.updatedAt).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit'})} 更新`:'正在读取听悟录音…';
  if(syncing)health=records.length?'正在更新听悟列表，下面仍可查看…':'正在同步听悟录音…';
  else if(error)health=`暂时无法更新：${error}${records.length?'；以下显示上次同步的记录。':''}`;
@@ -84,19 +102,30 @@ function renderLibrary(){
  const jobs=new Map((state.naming?.jobs||[]).map(j=>[j.url,j]));
  const key=JSON.stringify([visible.map(r=>[r.transId,r.rawTitle,r.sortTime,r.duration,r.url,jobs.get(r.url)?.status]),query,!!library.updatedAt,!!error]);
  if(key===libraryViewKey)return;libraryViewKey=key;
- const list=$('#recording-list'),fragment=document.createDocumentFragment();
+ const list=$('#recording-list'),fragment=document.createDocumentFragment();let groupKey=null,groupList=null;
  for(const record of visible){
+  const dateKey=record.parts?`${record.parts.year}-${record.parts.month}-${record.parts.day}`:'unknown';
+  if(dateKey!==groupKey){
+   groupKey=dateKey;const group=element('section','recording-group'),heading=element('h2','recording-group-heading');
+   if(record.parts){heading.append(element('span','recording-month',`${Number(record.parts.month)}月`),element('strong','recording-day',record.parts.day),element('span','','日'),element('span','recording-weekday',`${record.parts.weekday} · ${record.parts.year}`));}
+   else heading.append(element('span','','日期待确认'));
+   heading.append(element('span','group-count',`${visible.filter(r=>(r.parts?`${r.parts.year}-${r.parts.month}-${r.parts.day}`:'unknown')===dateKey).length} 条录音`));
+   groupList=element('div','recording-group-list');group.append(heading,groupList);fragment.append(group);
+  }
   const row=element('article','recording-row');row.dataset.recordingId=record.transId;
   const stamp=element('div','recording-date');
-  stamp.append(element('span','recording-month',record.parts?`${record.parts.year} 年 ${Number(record.parts.month)} 月`:'日期待确认'),element('strong','recording-day',record.parts?record.parts.day:'—'),element('span','recording-weekday',record.parts?.weekday||'已保存录音'));
+  stamp.append(element('span','recording-period',record.parts?(Number(record.parts.hour)<12?'上午':Number(record.parts.hour)<18?'下午':'晚上'):'时间待确认'),element('span','recording-time',record.parts?`${record.parts.hour}:${record.parts.minute}`:'—'));
   const content=element('div','recording-content'),meta=element('div','recording-meta');
-  meta.append(element('span','recording-time',record.parts?`${record.parts.hour}:${record.parts.minute} 开始`:'开始时间待确认'),element('span','meta-separator','·'),element('span','recording-duration',record.duration));
+  meta.append(element('span','recording-duration',record.duration));
   const job=jobs.get(record.url);if(job&&['waiting','draft','applying'].includes(job.status))meta.append(element('span','recording-state','标题整理中'));
-  const heading=element('h2','recording-title');
+  const heading=element('h3','recording-title');
   if(record.url){const link=element('a','recording-link',record.title);link.href='#recording/'+encodeURIComponent(record.transId);link.title='查看内容大纲：'+record.rawTitle;heading.append(link);}else heading.textContent=record.title;
-  content.append(meta,heading);
-  const trailing=element('div','recording-action');if(record.url){const link=element('a','recording-open','打开听悟 ↗');link.href=record.url;link.target='_blank';link.rel='noopener noreferrer';link.setAttribute('aria-label',`打开录音：${record.rawTitle}`);trailing.append(link);}
-  row.append(stamp,content,trailing);fragment.append(row);
+  const trailing=element('div','recording-action');if(record.url){
+   const original=element('a','recording-open','听悟回放 ↗');original.href=record.url;original.target='_blank';original.rel='noopener noreferrer';original.setAttribute('aria-label',`在听悟回放：${record.rawTitle}`);meta.append(element('span','meta-separator','·'),original);
+   const outline=element('a','recording-outline','查看大纲 →');outline.href='#recording/'+encodeURIComponent(record.transId);outline.setAttribute('aria-label',`查看大纲：${record.title}`);trailing.append(outline);
+  }
+  content.append(heading,meta);
+  row.append(stamp,content,trailing);groupList.append(row);
  }
  if(!visible.length){const empty=element('div','library-empty');empty.append(element('strong','',query?'没有找到这条录音':error?'暂时还没读到录音':library.updatedAt?'还没有已保存的录音':'正在连接你的听悟'),element('p','',query?'换个标题关键词，或试试录音日期。':error?'请保留一个已登录的听悟标签页，再点击「刷新列表」。':library.updatedAt?'在听悟结束并保存后，录音会出现在这里。':'第一次同步需要一点时间，之后打开就能看到记录。'));fragment.append(empty);}
  list.replaceChildren(fragment);

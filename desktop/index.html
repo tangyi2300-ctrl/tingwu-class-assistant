@@ -1,15 +1,26 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="tingwu-token" content="TOKEN_PLACEHOLDER"><title>听课搭子 · 我的录音</title><link rel="stylesheet" href="style.css"></head>
 <body><main id="dashboard">
-<header class="app-header"><a class="brand" href="/"><span class="brand-icon" aria-hidden="true">◉</span> 听课搭子 <small>CLASS COMPANION</small></a><nav class="page-nav" aria-label="应用页面"><button id="library-tab" class="nav-button selected" aria-current="page" aria-controls="library-page">我的录音</button><button id="settings-tab" class="nav-button" aria-controls="settings-page">课表与设置</button></nav><span id="app-version" class="review">桌面版 · v0.11</span></header>
-<section class="status-bar"><div><span id="status-dot" class="dot"></span><strong id="status-title">正在连接桌面服务…</strong><p id="next">正在读取课表状态…</p><p id="run-health" role="status"></p></div><span class="schedule-summary" id="schedule-summary">周一至周五</span></section>
+<a class="skip-link" href="#library-title">跳到录音列表</a>
+<header class="app-header">
+ <a class="brand" href="/"><span class="brand-icon" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>听课搭子<small>记录课堂，轻松回顾</small></span></a>
+ <span class="nav-caption">我的课堂</span>
+ <nav class="page-nav" aria-label="应用页面"><button id="library-tab" class="nav-button selected" aria-current="page" aria-controls="library-page"><span aria-hidden="true">▤</span>我的录音</button><button id="settings-tab" class="nav-button" aria-controls="settings-page"><span aria-hidden="true">◷</span>课表与设置</button></nav>
+ <div class="sidebar-bottom"><p>自动记录，安心听课。<br><span>结束录音时，请在听悟手动保存。</span></p><span id="app-version" class="review">桌面版 · v0.11</span></div>
+</header>
 <section id="library-page" aria-labelledby="library-title">
- <section class="home-today" aria-label="今天的日期和北京时间"><div><span class="today-caption" id="today-caption">今天 · 北京时间</span><div class="today-date-line"><time id="today-date">—月—日</time><span id="today-weekday"></span></div></div><time id="today-clock" aria-live="off">--:--:--</time></section>
- <div class="library-heading"><div><h1 id="library-title">我的录音<span id="recording-count" class="count-label">—</span></h1><p class="library-intro">来自通义听悟，按录音时间排列。</p></div><button id="recordings-refresh" class="secondary refresh-button">刷新列表 <span aria-hidden="true">↻</span></button></div>
- <div class="library-toolbar"><label class="search-field"><span aria-hidden="true">⌕</span><input id="recording-search" type="search" aria-label="搜索录音标题或日期" placeholder="搜索标题或日期，例如 11月14日" autocomplete="off"></label><span class="sort-label">按录音时间 · 最新在前</span></div>
+ <div class="library-heading"><div><p class="eyebrow">课堂资料库</p><h1 id="library-title">我的录音 <span id="recording-count" class="count-label">—</span></h1><p class="library-intro">找到一堂课，回顾它的重点。</p></div>
+  <section class="home-today" aria-label="今天的日期和北京时间"><span id="today-caption" class="today-caption">今天 · 北京时间</span><div class="today-date-line"><time id="today-date">—月—日</time><span id="today-weekday"></span></div><time id="today-clock" aria-live="off">--:--:--</time></section>
+ </div>
+ <section class="status-bar" aria-label="今天的自动录音安排">
+  <div class="status-heading"><h2>今日课表</h2><span class="schedule-status"><span id="status-dot" class="dot"></span><strong id="status-title">正在连接…</strong></span><a class="text-button" href="#settings">管理课表 <span aria-hidden="true">→</span></a></div>
+  <div class="today-sessions"><div class="today-session"><span class="session-period">上午</span><strong id="morning-start-display">09:55</strong><span class="session-task">开始录音</span><span id="morning-session-state" class="session-state">等待计划</span></div><div class="today-session"><span class="session-period">下午</span><strong id="afternoon-start-display">13:50</strong><span class="session-task">开始录音</span><span id="afternoon-session-state" class="session-state">等待计划</span></div></div>
+  <p id="run-health" role="status"></p><p id="next" class="next-event">正在读取课表状态…</p><span class="schedule-summary" id="schedule-summary" hidden>周一至周五</span>
+ </section>
+ <div class="library-toolbar"><label class="search-field"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.5 15.5 5 5"></path></svg><input id="recording-search" type="search" aria-label="搜索录音标题或日期" placeholder="搜索课程标题或日期" autocomplete="off"></label><button id="recordings-refresh" class="secondary refresh-button"><span aria-hidden="true">↻</span> 刷新列表</button></div>
  <div class="library-meta"><p id="library-health" role="status">正在读取听悟录音…</p><span id="library-results"></span></div>
  <div id="recording-list" aria-label="听悟已保存录音" aria-busy="true"><div class="library-empty">正在读取你的录音…</div></div>
- <p class="library-footnote">显示通义听悟已保存的记录 · 点击标题，在这里查看大纲与课堂笔记</p>
+ <p class="library-footnote">点击标题或「查看大纲」，回顾思维导图、笔记和原文。</p>
 </section>
 <section id="detail-page" aria-labelledby="detail-title" hidden>
  <div class="detail-topbar"><button id="detail-back" class="text-button">← 返回录音列表</button><div class="detail-actions"><button id="detail-refresh" class="secondary">重新整理 ↻</button><a id="detail-original" class="secondary" target="_blank" rel="noopener noreferrer">在听悟查看 ↗</a></div></div>
@@ -31,22 +42,21 @@
  </div>
 </section>
 <section id="settings-page" aria-labelledby="settings-title" hidden>
-<div class="settings-heading"><div><p class="eyebrow">把记录交给后台，把注意力留给课堂</p><h1 id="settings-title">课表与设置</h1></div><button id="toggle" class="primary">启用课表</button></div>
-<section class="card naming-card" aria-labelledby="naming-heading">
- <div class="naming-top"><div><p class="eyebrow">AFTER CLASS · 录音自动命名</p><h2 id="naming-heading">让每一份录音，都有清楚的名字。</h2><p class="naming-intro">日期 + 开始时间 + 主要内容，直接写入通义听悟的录音标题。</p></div><button id="naming-toggle" class="secondary" aria-pressed="false">启用自动命名</button></div>
- <div class="naming-format"><span>命名格式</span><b>2026-11-11</b><i>｜</i><b>14:22</b><i>｜</i><b>这堂课主要讲什么</b><small>使用原录音时间 · 北京时间</small></div>
- <div class="naming-process"><span>① 结束并保存</span><span>② 提炼主要内容</span><span>③ 自动改名并核对</span></div>
- <div class="section-heading"><h3>最近的命名记录</h3><button id="naming-inspect" class="text-button">补查漏改记录 ↻</button></div>
- <p id="naming-health" class="hint" role="status"></p><div id="naming-jobs" aria-live="polite"></div>
- <p class="hint naming-note">保留一个已登录的听悟标签页即可，保存后可以返回首页。内容尚未生成时会继续等待；空录音或内容很少时会明确标注。你手动起的标题会保留。</p>
+ <div class="settings-heading"><div><p class="eyebrow">自动录音 · 保存后整理</p><h1 id="settings-title">课表与设置</h1><p class="library-intro">日常只需确认课表已启用。</p></div><button id="toggle" class="primary">启用课表</button></div>
+ <section class="card schedule-card"><div class="section-heading"><h2>自动录音时间</h2><span>周一至周五 · 北京时间</span></div>
+ <form id="schedule-form"><div class="schedule-columns"><div class="session"><span class="session-label"><b>上午课堂</b><small>10:00 — 12:00</small></span><div class="time-row"><label>自动开始<input id="morning" type="time" required value="09:55"></label><label>提醒手动结束<input id="noon" type="time" required value="12:10"></label></div></div>
+ <div class="session"><span class="session-label"><b>下午课堂</b><small>14:00 — 18:00</small></span><div class="time-row"><label>自动开始<input id="afternoon" type="time" required value="13:50"></label><label>提醒手动结束<input id="evening" type="time" required value="18:10"></label></div></div></div>
+ <div class="save-row"><span>晚开盖会补启动；结束录音始终由你操作。</span><button class="secondary" type="submit">保存时间</button></div></form></section>
+ <section class="card naming-card" aria-labelledby="naming-heading"><div class="naming-top"><div><h2 id="naming-heading">保存后自动改标题</h2><p class="naming-intro">用「日期 · 开始时间 · 课堂主题」整理录音。</p></div><button id="naming-toggle" class="secondary" aria-pressed="false">启用自动命名</button></div>
+ <p id="naming-health" class="hint" role="status"></p>
+ <details class="settings-fold naming-history"><summary>查看命名记录<span>原标题与修改结果</span></summary><div class="fold-content"><div class="section-heading"><h3>最近的命名记录</h3><button id="naming-inspect" class="text-button">补查漏改记录 ↻</button></div><div id="naming-jobs" aria-live="polite"></div><p class="hint">使用原录音时间；保留手动修改的标题。内容尚未生成时会继续等待。</p></div></details></section>
+ <details class="settings-fold connection-fold"><summary>连接与权限<span>登录、麦克风与录音测试</span></summary><div class="fold-content setup">
+ <p id="connection" class="connection">尚未检查浏览器连接</p><div class="connection-actions"><button id="open" class="secondary">打开听悟 / 登录 ↗</button><button id="check" class="secondary">检查登录与自动点击</button></div>
+ <ol><li><b>在常用 Chrome 登录通义听悟</b><span>保留已登录的听悟标签页，放在后台即可。</span></li><li><b>允许麦克风和后台操作</b><span>Chrome「显示 → 开发者 → 允许 Apple 事件中的 JavaScript」，并允许听悟使用麦克风。</span></li></ol>
+ <p class="hint">保持开盖、联网和听悟登录，可锁屏使用。合盖或系统休眠会影响录音；恰好上课才开盖仍需要加载时间。</p>
+ <div class="test-card"><div><h3>录音与提醒测试</h3><p>启动测试会开启真实麦克风录音，请亲自结束并保存。</p></div><div class="test-buttons"><button id="test-reminder" class="secondary">预览下课提醒</button><button id="test-start" class="secondary">测试启动录音</button></div></div>
+ </div></details>
+ <details class="settings-fold log-section"><summary>运行记录<span>遇到问题时查看</span></summary><div class="fold-content"><ul id="logs"><li>还没有运行记录。</li></ul></div></details>
 </section>
-<div class="grid"><section class="card"><div class="section-heading"><h2>我的上课计划</h2><span>周一至周五 · 北京时间</span></div>
-<form id="schedule-form"><div class="session"><span class="session-label">AM <b>上午课堂</b><small>10:00 — 12:00</small></span><div class="time-row"><label>课前自动启动<input id="morning" type="time" required value="09:55"></label><i>→</i><label>提醒手动结束<input id="noon" type="time" required value="12:10"></label></div></div>
-<div class="session"><span class="session-label">PM <b>下午课堂</b><small>14:00 — 18:00</small></span><div class="time-row"><label>课前自动启动<input id="afternoon" type="time" required value="13:50"></label><i>→</i><label>询问并提醒结束<input id="evening" type="time" required value="18:10"></label></div></div>
-<div class="save-row"><span>周末休息 · 结束录音始终由你操作</span><button class="secondary" type="submit">保存时间</button></div></form></section>
-<section class="card setup"><p class="eyebrow">第一次使用</p><h2>准备好了，再启用</h2><ol><li><b>在常用 Chrome 登录听悟</b><span>登录有效时，自动进入你的账号。</span></li><li><b>允许后台脚本与麦克风</b><span>Chrome「显示 → 开发者 → 允许 Apple 事件中的 JavaScript」，并允许听悟使用麦克风。</span></li><li><b>测试启动，再启用课表</b><span>请核对听悟计时和转写是否出现。</span></li></ol><button id="open" class="secondary wide">打开听悟 / 登录 ↗</button><button id="check" class="secondary wide check-button">检查登录与自动点击</button><p id="connection" class="connection">尚未检查浏览器连接</p><p class="hint">启用期间防止电脑因闲置自动休眠，请接电、开盖、保持联网和听悟登录。可锁屏使用，首次请在本机实测；合盖和系统休眠会影响录音。到设定时间自动启动；晚开盖会在恢复运行后补启动，网页就绪后核对计时。恰好上课才开盖仍需要加载时间。课前 5 分钟预检，失败会自动重试。</p></section></div>
-<section class="card test-card"><div><h2>先试一试，再放心上课</h2><p>提醒测试不会停止录音。启动测试会尝试开启真实麦克风录音。</p></div><div class="test-buttons"><button id="test-reminder" class="secondary">预览下课提醒</button><button id="test-start" class="secondary">测试启动录音</button></div></section>
-<section class="log-section"><div class="section-heading"><h2>运行记录</h2><span>只保存在这台电脑</span></div><ul id="logs"><li>还没有运行记录。检查通过后，再启用课表。</li></ul></section>
-</section>
-<footer>听课搭子不读取或保存音频；录音由通义听悟处理。<span>桌面后台运行 · 本机保存设置 · 下课由你手动结束</span></footer>
+<footer>录音保存在通义听悟 · 本机仅保存设置与整理内容<span>下课请在听悟手动结束并保存</span></footer>
 </main><section id="notice" hidden><div class="notice-icon">◷</div><p class="eyebrow">听课搭子 · 温柔提醒</p><h1 id="notice-title">下课了，<br>现在结束录音吗？</h1><p id="notice-text">请在通义听悟中亲自点击结束录音。<br>如果还在上课，就继续记录吧。</p><button id="go-recording" class="primary wide">前往听悟，手动结束</button><button id="dismiss" class="secondary wide">还在上课，继续录制</button><small>这两个按钮都不会替你停止录音。</small></section><div id="toast" role="status" hidden></div><script type="module" src="app.js"></script></body></html>
