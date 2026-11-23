@@ -22,3 +22,9 @@ review-backup/
 preview/命名审查示例.json
 preview/听课搭子-v0.6-命名审查.html
 preview/自动命名-*.png
+
+# Local classroom audio must never be published.
+*.wav
+*.m4a
+*.caf
+*.aiff

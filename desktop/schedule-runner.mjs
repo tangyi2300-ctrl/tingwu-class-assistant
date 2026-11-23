@@ -21,14 +21,14 @@ export async function runScheduleCycle({state,now=()=>new Date(),save,start,pref
  for(const e of preflightEvents(state.settings,state.completed,now(),state.preflightAttempts)){
   if(cancelled())return;
   state.preflightAttempts[e.id]=now().getTime();await save();
-  try{await preflight();state.completed[e.id]=now().getTime();await log('课前连接检查通过，等待计划时间自动录制');}
+  try{await preflight();state.completed[e.id]=now().getTime();await log('课前录音准备检查通过，等待计划时间自动录制');}
   catch(err){await log('课前检查未通过：'+err.message,'warning');await warn(e.id,err.message,true);}
  }
  // Recheck throughout class; start confirmation is not evidence of continued audio.
  // Losing confirmation never clears completion: a manual stop must stay stopped.
  if(verifyRecording)for(const e of sessions(state.settings,now())){
   const run=state.sessionRuns[e.id],time=now().getTime();
-  if(!state.completed[e.id]||!run||time<e.plannedAt||time>=e.deadline||time-(run.lastHealthAttemptAt||run.health?.checkedAt||0)<30000)continue;
+  if(!state.completed[e.id]||!run||run.manuallyEndedAt||time<e.plannedAt||time>=e.deadline||time-(run.lastHealthAttemptAt||run.health?.checkedAt||0)<30000)continue;
   if(cancelled())return;
   const previous=run.health;
   run.lastHealthAttemptAt=time;await save();
@@ -40,7 +40,7 @@ export async function runScheduleCycle({state,now=()=>new Date(),save,start,pref
    if(changed&&run.health.status!=='recording'){
     const elapsed=Number.isFinite(run.health.elapsedSeconds)?'（页面计时 '+run.health.elapsedSeconds+' 秒）':'';
     await log('课内录音检查：'+run.health.message+elapsed,'warning');
-    await warn(e.id+':health','课内录音需要检查：'+run.health.message+'。请查看听悟页面；结束录音仍由你操作。');
+    await warn(e.id+':health','课内录音需要检查：'+run.health.message+'。请查看听课搭子的录音状态；结束录音仍由你操作。');
    }else if(changed&&previous?.status!=='recording'&&run.health.status==='recording')await log('课内录音检查：计时已恢复增加');
    continue;
   }
@@ -48,24 +48,24 @@ export async function runScheduleCycle({state,now=()=>new Date(),save,start,pref
    const message='课前录音复查未通过：'+run.health.message+'；保留已有录音及手动结束状态，不会重复新建录音。';
    if(now().getTime()>=e.classAt&&!state.alerted[e.id+':class-start']){
     state.alerted[e.id+':health']=now().getTime();
-    await warn(e.id+':class-start','已经上课，录音状态仍未通过复查，请查看听悟页面。',true);
+    await warn(e.id+':class-start','已经上课，录音状态仍未通过复查，请查看听课搭子的录音状态。',true);
    }else if(!await earlyWarning(e,message))await warn(e.id+':health',message,true);
   }
  }
  for(const e of runnableEvents(state.settings,state.completed,state.attempts,now())){
   if(cancelled())return;
   if(!START_KINDS.includes(e.kind)){await remind();state.completed[e.id]=now().getTime();await save();continue;}
-  await earlyWarning(e,'距离上课不足两分钟，仍未确认录音开始。程序正在继续重试，请检查听悟登录、麦克风和网络。');
+  await earlyWarning(e,'距离上课不足两分钟，仍未确认录音开始。程序正在继续重试，请检查听课搭子的麦克风授权。');
   const old=state.sessionRuns[e.id]||{};
   const run=state.sessionRuns[e.id]={...old,kind:e.kind,date:e.date,plannedAt:e.plannedAt,status:'starting',attemptCount:(old.attemptCount||0)+1,lastAttemptAt:now().getTime()};
   state.attempts[e.id]=now().getTime();await save();
   try{
    const result=await start(e.id,e.deadline);
    if(cancelled() || result?.cancelled){run.status='cancelled';await save();return;}
-   if(!result?.confirmed)throw Error('尚未确认听悟录音计时持续增加');
-   Object.assign(run,{status:'confirmed',confirmedAt:now().getTime(),elapsedSeconds:result.elapsedSeconds,error:null,source:result.source||'unknown',startClickedAt:result.startClickedAt??null,estimatedStartedAt:result.estimatedStartedAt||null,health:{status:'recording',checkedAt:result.checkedAt||now().getTime(),elapsedSeconds:result.elapsedSeconds,message:'已核对录音计时持续增加'}});
+   if(!result?.confirmed)throw Error('尚未确认录音持续写入');
+   Object.assign(run,{status:'confirmed',recordId:result.recordId||null,confirmedAt:now().getTime(),elapsedSeconds:result.elapsedSeconds,error:null,source:result.source||'unknown',startClickedAt:result.startClickedAt??null,estimatedStartedAt:result.estimatedStartedAt||null,health:{status:'recording',checkedAt:result.checkedAt||now().getTime(),elapsedSeconds:result.elapsedSeconds,message:'已核对录音计时持续增加'}});
    state.completed[e.id]=run.confirmedAt;await save();
-   await log(run.source==='automatic'?(run.confirmedAt>=e.classAt?'课内补自动开启成功':'定时自动开启成功')+'：已自动点击开始，并核对听悟录音计时持续增加':run.source==='existing'?'检测到已有录音：计时持续增加，本次未自动点击开始':'已确认录音在进行；本次未记录启动来源');
+   await log(run.source==='local'?'本地自动录音已开始：已核对音频持续写入':run.source==='automatic'?(run.confirmedAt>=e.classAt?'课内补自动开启成功':'定时自动开启成功')+'：已自动点击开始，并核对听悟录音计时持续增加':run.source==='existing'?'检测到已有录音：计时持续增加，本次未自动点击开始':'已确认录音在进行；本次未记录启动来源');
   }catch(err){
    const changed=run.error!==err.message;run.status='retrying';run.error=err.message;run.lastFailureAt=now().getTime();await save();
    if(changed || run.attemptCount===1)await log('自动录音未确认，将在课内继续重试：'+err.message,'warning');

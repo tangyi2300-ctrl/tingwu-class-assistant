@@ -7,6 +7,15 @@ label='com.tangyi.tingwuclassassistant.agent'
 plist=Path.home()/'Library/LaunchAgents'/f'{label}.plist'
 guard_label='com.tangyi.tingwuclassassistant.guard'
 guard_plist=Path.home()/'Library/LaunchAgents'/f'{guard_label}.plist'
+# Never overwrite a helper which is recording, even if the dashboard is closed.
+status_file=base/'data/local/status.json'
+if status_file.exists():
+ import json,time
+ local=json.loads(status_file.read_text())
+ if local.get('recording') and time.time()*1000-local.get('updatedAt',0)<10000:
+  raise SystemExit('本地录音正在进行，请先手动结束后安装。')
+subprocess.run([os.sys.executable,str(root/'build-recorder.py')],check=True)
+if not (root/'node_modules/ali-oss').exists():raise SystemExit('请先运行 npm ci 安装依赖。')
 if app.exists():
  info=app/'Contents/Info.plist'
  if not info.exists() or plistlib.loads(info.read_bytes()).get('CFBundleIdentifier')!='com.tangyi.tingwuclassassistant':
@@ -22,13 +31,18 @@ for target,expected in [(guard_plist,guard_label),(plist,label)]:
 base.mkdir(parents=True,exist_ok=True)
 for name in ['desktop','extension','native']:
  shutil.copytree(root/name,base/name,dirs_exist_ok=True)
+shutil.copytree(root/'node_modules',base/'node_modules',dirs_exist_ok=True,ignore=shutil.ignore_patterns('playwright','playwright-core','.cache'))
+for name in ['package.json','package-lock.json','README.md','THIRD_PARTY_NOTICES.md','LICENSES']:
+ source=root/name
+ if source.is_dir():shutil.copytree(source,base/name,dirs_exist_ok=True)
+ elif source.exists():shutil.copy2(source,base/name)
 (base/'runtime').mkdir(exist_ok=True)
 # Keep the existing runtime identity so macOS Accessibility permission remains valid.
 if not (base/'runtime/node').exists():shutil.copy2(Path(node_source).resolve(),base/'runtime/node')
 (base/'logs').mkdir(exist_ok=True)
 (base/'data').mkdir(mode=0o700,exist_ok=True)
 contents=app/'Contents';(contents/'MacOS').mkdir(parents=True,exist_ok=True);(contents/'Resources').mkdir(exist_ok=True)
-info={'CFBundleName':'听课搭子','CFBundleDisplayName':'听课搭子','CFBundleIdentifier':'com.tangyi.tingwuclassassistant','CFBundleVersion':'0.11.2','CFBundleShortVersionString':'0.11.2','CFBundleExecutable':'launcher','CFBundlePackageType':'APPL','LSUIElement':True,'CFBundleIconFile':'AppIcon','NSAppleEventsUsageDescription':'在上课前打开通义听悟并点击开始录音。'}
+info={'CFBundleName':'听课搭子','CFBundleDisplayName':'听课搭子','CFBundleIdentifier':'com.tangyi.tingwuclassassistant','CFBundleVersion':'0.12.0','CFBundleShortVersionString':'0.12.0','CFBundleExecutable':'launcher','CFBundlePackageType':'APPL','LSUIElement':True,'CFBundleIconFile':'AppIcon','NSAppleEventsUsageDescription':'在上课前打开通义听悟并点击开始录音。'}
 (contents/'Info.plist').write_bytes(plistlib.dumps(info))
 config={'Label':label,'ProgramArguments':[str(base/'runtime/node'),str(base/'desktop/server.mjs')],'WorkingDirectory':str(base),'RunAtLoad':True,'KeepAlive':True,'ThrottleInterval':30,'ProcessType':'Background','StandardOutPath':str(base/'logs/service.log'),'StandardErrorPath':str(base/'logs/error.log')}
 plist.parent.mkdir(exist_ok=True);plist.write_bytes(plistlib.dumps(config))

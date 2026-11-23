@@ -1,4 +1,8 @@
 import http from 'node:http';
+import {fileURLToPath} from 'node:url';
+import {createReadStream} from 'node:fs';
+import {createLocalRecorder} from './local-recorder.mjs';
+import {createLocalUploads} from './local-uploads.mjs';
 import {spawn} from 'node:child_process';
 import {DEFAULT_NAMING,reconcileSavedRecordings,prepareTitle,canAutoApply,applyTitle,validateCandidate,savedURL} from './naming.mjs';
 import {listSavedRecordings} from './tingwu-api.mjs';
@@ -9,14 +13,14 @@ import {recordingHasPriority,dailyRuns,keepDisplayAwake,SCHEDULE_POLL_MS} from '
 import {runScheduleCycle} from './schedule-runner.mjs';
 import {connectionProblem} from './native-status.mjs';
 import {ensureRecordingStarted,verifyRecordingHealth} from './recording-start.mjs';
-import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,stat} from 'node:fs/promises';
 import path from 'node:path';
 import {homedir} from 'node:os';
 import {randomBytes} from 'node:crypto';
 import {DEFAULTS,validate,dueEvents,nextEvent,clockParts} from '../extension/schedule.js';
 import {openTingwu,showTingwu,controlStatus,controlStep,notify,askEnd,askProblem,namingTabs,readNamingMetadata,writeRecordingTitle,openNamingRecord} from './chrome.mjs';
 const PORT=Number(process.env.TINGWU_PORT || 18766), HOST='127.0.0.1', origin=`http://${HOST}:${PORT}`;
-const root=path.resolve(new URL('..',import.meta.url).pathname);
+const root=fileURLToPath(new URL('..',import.meta.url));
 const data=process.env.TINGWU_DATA_DIR || path.join(homedir(),'Library/Application Support/TingwuClassAssistant/data');
 await mkdir(data,{recursive:true,mode:0o700});
 const stateFile=path.join(data,'state.json');
@@ -29,6 +33,11 @@ state.naming??=structuredClone(DEFAULT_NAMING);
 state.library??={records:[],updatedAt:null,error:null};
 for(const j of state.naming.jobs){if(j.status==='applying'){j.status='attention';j.reason='上次改名期间服务中断，请检查听悟实际标题后重试。';}}
 const preview=process.env.TINGWU_PREVIEW==='1';
+const localEnabled=!preview&&(!process.env.TINGWU_DATA_DIR||!!process.env.TINGWU_LOCAL_RECORDER_APP);
+const localDir=path.join(data,'local');
+if(localEnabled)await mkdir(localDir,{recursive:true,mode:0o700});
+const recorder=createLocalRecorder({dir:localDir,app:process.env.TINGWU_LOCAL_RECORDER_APP||path.join(root,'native/听课搭子录音.app'),enabled:localEnabled});
+const uploads=createLocalUploads({dir:localDir,recorder,log,canUpload:()=>!busy&&!ticking&&!namingBusy&&!library.busy&&!details.busy&&!recordingHasPriority(state.settings,state.completed),onUploaded:async()=>{await library.refresh();}});
 let namingBusy=false;
 let writeQueue=Promise.resolve();
 function save(){const snapshot=JSON.stringify(state,null,2);writeQueue=writeQueue.catch(()=>{}).then(async()=>{await writeFile(stateFile+'.tmp',snapshot,{mode:0o600});await rename(stateFile+'.tmp',stateFile);});return writeQueue;}
@@ -44,10 +53,10 @@ function syncAwake(){
   awakeProcess.once('error',e=>{awakeProcess=null;console.error('防休眠不可用：'+e.message);});
   awakeProcess.once('exit',()=>{awakeProcess=null;});
  }else if(!state.settings.enabled && awakeProcess){awakeProcess.kill();awakeProcess=null;}
- if(!preview && keepDisplayAwake(state.settings) && !displayProcess){
+ if(!preview && !localEnabled && keepDisplayAwake(state.settings) && !displayProcess){
   displayProcess=spawn('/usr/bin/caffeinate',['-d','-w',String(process.pid)],{stdio:'ignore'});
   displayProcess.once('error',()=>{displayProcess=null;});displayProcess.once('exit',()=>{displayProcess=null;});
- }else if(!keepDisplayAwake(state.settings) && displayProcess){displayProcess.kill();displayProcess=null;}
+ }else if((localEnabled||!keepDisplayAwake(state.settings)) && displayProcess){displayProcess.kill();displayProcess=null;}
 }
 process.on('SIGTERM',()=>{awakeProcess?.kill();displayProcess?.kill();process.exit(0);});
 process.on('SIGINT',()=>{awakeProcess?.kill();displayProcess?.kill();process.exit(0);});
@@ -57,33 +66,16 @@ async function check(){
  return state.connection;
 }
 async function startRecording(attemptId=null,deadline=Infinity){
- if(busy || namingBusy)throw Error('正在处理听悟任务，请稍候');
- busy=true;stopping=false;
- try {
-  const result=await ensureRecordingStarted({attemptId:attemptId||randomBytes(12).toString('hex'),deadline,prepare:openTingwu,step:controlStep,cancelled:()=>stopping,
-   priorStartClickedAt:attemptId?state.sessionRuns?.[attemptId]?.startClickedAt:null,
-   onSample:async sample=>{state.connection={...sample,ok:!connectionProblem(sample),error:connectionProblem(sample)||undefined,checkedAt:Date.now()};},
-   onClick:async click=>{
-    if(attemptId&&click.isStart&&state.sessionRuns?.[attemptId]){state.sessionRuns[attemptId].startClickedAt=click.at;await save();}
-    await log('已自动点击「'+click.label+'」，正在核对录音计时');
-   }
-  });
-  if(result.cancelled)return result;
-  const message=result.source==='automatic'?'已自动点击开始，并核对听悟录音计时持续增加；下课请手动结束':'检测到已有录音，已核对计时持续增加；本次未自动点击开始';
-  if(!attemptId)await log(message);
-  await notify(result.source==='automatic'?'听悟已自动开始录音':'听悟已有录音正在进行',message);
-  return {...result,message};
- }catch(e){if(!attemptId){await log(e.message,'warning');await notify('录音需要处理',e.message);}throw e;}
+ if(busy)throw Error('正在处理录音任务，请稍候');
+ busy=true;
+ try{const result=await recorder.start(attemptId,deadline);await log(result.message);return result;}
  finally{busy=false;}
 }
-async function verifyScheduledRecording(){
- return verifyRecordingHealth({read:async()=>{const c=await check();const problem=connectionProblem(c);if(problem)throw Error(problem);return c;}});
-}
+async function verifyScheduledRecording(){return recorder.health();}
 async function reminder(){
- await log('已询问是否结束录音；未执行停止操作');
- await notify('下课了，现在结束录音吗？','请在通义听悟中亲自结束录音。');
- askEnd().catch(e=>log('提醒窗口：'+e.message,'warning'));
- return {message:'已显示下课询问，录音由你本人结束'};
+ await log('已提醒手动结束本地录音；未执行停止操作');
+ await notify('下课了，现在结束录音吗？','请打开听课搭子，点击「结束并上传」；还在上课可继续录制。');
+ return {message:'已发送下课提醒，请在听课搭子手动结束并上传'};
 }
 let ticking=false;
 async function tick(){
@@ -94,7 +86,7 @@ async function tick(){
   await runScheduleCycle({state,save,start:startRecording,remind:reminder,log,
    cancelled:()=>!state.settings.enabled || stopping,
    verifyRecording:verifyScheduledRecording,
-   preflight:async()=>{await openTingwu();const c=await check();const problem=connectionProblem(c);if(problem)throw Error(problem);},
+   preflight:()=>recorder.preflight(),
    notice:async(message,urgent)=>{await notify(urgent?'听课搭子：录音尚未确认':'听课搭子：自动录音需要检查',message);}
   });
  }catch(e){console.error(e.message);}finally{ticking=false;runtime.tickFinishedAt=Date.now();}
@@ -135,12 +127,28 @@ const server=http.createServer(async(req,res)=>{
  try{
   if(req.headers.host!==`${HOST}:${PORT}`)return respond(res,403,{error:'invalid host'});
   const url=new URL(req.url,origin);
-  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.11.2',runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
+  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.12.0',local:{...await recorder.status(),uploads:await uploads.status()},runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
+  if(req.method==='GET' && /^\/api\/local-audio\/[a-zA-Z0-9-]{1,80}$/.test(url.pathname)){
+   if(url.searchParams.get('token')!==token)return respond(res,403,{error:'下载权限无效，请刷新页面'});
+   const id=url.pathname.split('/').at(-1),record=(await recorder.records()).find(r=>r.id===id&&['saved','interrupted'].includes(r.status));
+   if(!record)return respond(res,404,{error:'没有已保存的音频'});
+   const info=await stat(record.file);res.writeHead(200,{'Content-Type':'audio/wav','Content-Length':info.size,'Content-Disposition':`attachment; filename="${id}.wav"`,'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});
+   const stream=createReadStream(record.file);stream.on('error',()=>res.destroy());stream.pipe(res);return;
+  }
   if(req.method==='POST' && url.pathname.startsWith('/api/')){
    if(req.headers.origin!==origin || req.headers['x-tingwu-token']!==token || req.headers['content-type']!=='application/json')return respond(res,403,{error:'请求来源无效'});
    let raw='';for await(const c of req){raw+=c;if(raw.length>4096)return respond(res,413,{error:'请求过大'});}
    const body=JSON.parse(raw||'{}');let result;
    if(preview)throw Error('这是审查预览，不会修改听悟录音或正式设置');
+   // Stopping is always available, even while naming/upload/schedule checks run.
+   if(url.pathname==='/api/local-stop'){
+    await recorder.stop(body.id);
+    for(const run of Object.values(state.sessionRuns||{}))if(run.recordId===body.id){run.manuallyEndedAt=Date.now();run.health={status:'ended',message:'已由你手动结束并保存',checkedAt:Date.now()};}
+    await save();await uploads.discover();uploads.tick().catch(e=>log(e.message,'warning'));
+    return respond(res,200,{ok:true,result:{message:'录音已保存在电脑，正在准备上传听悟'}});
+   }
+   if(url.pathname==='/api/local-permission')return respond(res,200,{ok:true,result:await recorder.permission()});
+   if(url.pathname==='/api/local-retry')return respond(res,200,{ok:true,result:await uploads.retry(body.id)});
    if(url.pathname==='/api/recording-detail'){
     const record=state.library.records.find(r=>r.transId===body.transId);
     if(!record)return respond(res,404,{error:'录音不在已同步的列表中，请先刷新列表'});
@@ -187,7 +195,7 @@ const server=http.createServer(async(req,res)=>{
      if(!skipped || ['applying','renamed'].includes(skipped.status))throw Error('该记录不能跳过');
      await storeNamingJob({...skipped,status:'skipped',reason:'本条录音保留原标题。'});result={message:'已保留原标题'};break;
     case '/api/save':
-     const updated=validate(body.settings);if(updated.enabled){const c=await check();if(!c.ok || c.loginRequired || c.noTab || c.browserClosed || (!c.homeReady && !c.ongoing && !c.path?.startsWith('/doc/')))throw Error(c.error || '请先打开听悟并登录，完成连接检查后再启用');}state.settings=updated;stopping=!state.settings.enabled;await save();syncAwake();result={message:state.settings.enabled?'自动课表已启用':'课表已暂停，已有录音保持不变'};await log(result.message);break;
+     const updated=validate(body.settings);if(updated.enabled)await recorder.preflight();state.settings=updated;stopping=!state.settings.enabled;await save();syncAwake();result={message:state.settings.enabled?'自动课表已启用':'课表已暂停，已有录音保持不变'};await log(result.message);break;
     case '/api/open':await showTingwu();result={message:'已打开听悟，使用 Chrome 保存的登录状态'};break;
     case '/api/check':result=await check();break;
     case '/api/start':result=await startRecording();break;
@@ -212,3 +220,5 @@ setInterval(tick,SCHEDULE_POLL_MS);
 if(!preview)setTimeout(tick,500);
 if(!preview){setTimeout(monitorNaming,1500);setInterval(monitorNaming,15000);}
 // On startup or wake, retry an unconfirmed session only inside its weekday class window.
+
+if(localEnabled){recorder.ensure().catch(e=>log(e.message,'warning'));setTimeout(()=>uploads.tick().catch(()=>{}),4000);setInterval(()=>uploads.tick().catch(()=>{}),10000);}

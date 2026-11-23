@@ -28,26 +28,58 @@ function render(fields=false){
  if(fields)for(const k of ['morning','noon','afternoon','evening'])$('#'+k).value=state.settings[k];
  const on=state.settings.enabled;
  $('#status-title').textContent=on?'自动课表已启用':'自动课表已暂停';$('#toggle').textContent=on?'暂停课表':'启用课表';$('#status-dot').classList.toggle('on',on);
- $('#next').textContent=on&&state.next?`下一次：${new Date(state.next.when).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'})} · ${LABELS[state.next.kind]}`:'完成登录与连接检查后，可启用自动录音';
+ $('#next').textContent=on&&state.next?`下一次：${new Date(state.next.when).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'})} · ${LABELS[state.next.kind]}`:state.local?.enabled?'授权麦克风后，可启用自动录音':'完成登录与连接检查后，可启用自动录音';
  $('#schedule-summary').textContent=`周一至周五 · ${state.settings.morning} / ${state.settings.afternoon}`;
  const c=state.connection;
- let message='点击「检查登录与自动点击」确认准备状态';
+ let message='点击「检查听悟上传连接」确认上传准备状态';
  if(c){message=!c.ok?c.error:c.browserClosed?'Chrome 尚未打开':c.noTab?'请先打开通义听悟':c.loginRequired?'听悟需要登录验证，请在 Chrome 完成':c.recordingIssue?'听悟提示：'+c.recordingIssue.message:c.paused?'已有录音已暂停，请在听悟手动恢复':c.ongoing?'已连接录音页面，计时 '+(c.elapsedSeconds??'待确认')+' 秒':c.homeReady?'已连接听悟工作台，自动点击功能可用':'已连接浏览器，等待听悟工作台加载';}
  $('#connection').textContent=message;$('#connection').classList.toggle('warning',!!c&&(!c.ok||c.loginRequired||c.noTab||c.recordingIssue));
  const pending=(state.sessions||[]).find(s=>['starting','retrying','pending','missed'].includes(s.status));
  const confirmed=(state.sessions||[]).filter(s=>s.status==='confirmed');
- const blocked=state.connection && !state.connection.ok;
- const healthIssue=confirmed.find(s=>s.health&&s.health.status!=='recording'&&Date.now()-s.health.checkedAt<300000);
+ const blocked=!state.local?.enabled&&state.connection && !state.connection.ok;
+ const healthIssue=confirmed.find(s=>s.health&&!['recording','ended'].includes(s.health.status)&&Date.now()-s.health.checkedAt<300000);
  const recent=[...confirmed].sort((a,b)=>(b.health?.checkedAt||b.confirmedAt||0)-(a.health?.checkedAt||a.confirmedAt||0))[0];
  const checkedTime=recent?.health?.checkedAt?new Date(recent.health.checkedAt).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit'}):'';
- const sourceLabel=recent?.source==='automatic'?'已自动开启':recent?.source==='existing'?'已有录音，本次未自动点击开始':'已确认开始，启动来源未记录';
- $('#run-health').textContent=!on?'':healthIssue?`${LABELS[healthIssue.kind]}：${healthIssue.health.message}；请查看听悟。`:blocked?'自动启动需要检查，请在「课表与设置 → 连接与权限」查看。':pending?`${LABELS[pending.kind]}：${pending.status==='missed'?'本节课未确认录音':pending.status==='starting'?'正在启动并核对计时':'尚未确认录音，正在重试'}${pending.error?' · '+pending.error:''}`:recent?`${LABELS[recent.kind]}${sourceLabel}${checkedTime?' · 最近核对 '+checkedTime:''}`:'';
+ const sourceLabel=['automatic','local'].includes(recent?.source)?'已自动开启':recent?.source==='existing'?'已有录音，本次未自动点击开始':'已确认开始，启动来源未记录';
+ $('#run-health').textContent=!on?'':healthIssue?`${LABELS[healthIssue.kind]}：${healthIssue.health.message}；请查看录音状态。`:blocked?'自动启动需要检查，请在「课表与设置 → 连接与权限」查看。':pending?`${LABELS[pending.kind]}：${pending.status==='missed'?'本节课未确认录音':pending.status==='starting'?'正在启动并核对计时':'尚未确认录音，正在重试'}${pending.error?' · '+pending.error:''}`:recent?`${LABELS[recent.kind]}${sourceLabel}${checkedTime?' · 最近核对 '+checkedTime:''}`:'';
  $('#run-health').classList.toggle('warning',!!pending||!!blocked||!!healthIssue);
  $('#run-health').classList.toggle('session-evidence',!!recent);
+ renderLocalRecorder();
  renderTodaySchedule();
  renderNaming();
  renderLibrary();
  $('#logs').replaceChildren(...(state.logs.length?state.logs.slice(0,8):[{message:'还没有运行记录。'}]).map(item=>{const li=document.createElement('li');li.className=item.level||'';li.textContent=(item.time?new Date(item.time).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'　':'')+item.message;return li;}));
+}
+function localTime(seconds){const n=Math.max(0,Math.floor(seconds||0));return [Math.floor(n/3600),Math.floor(n%3600/60),n%60].map(x=>String(x).padStart(2,'0')).join(':');}
+function updateLocalTimer(){
+ const local=state?.local;if(!local?.enabled)return;
+ const delay=Date.now()-(local.updatedAt||0),elapsed=local.active?.durationSeconds||0;
+ $('#local-timer').textContent=localTime(elapsed+(local.recording&&delay<6000?Math.max(0,delay/1000):0));
+}
+setInterval(updateLocalTimer,1000);
+function renderLocalRecorder(){
+ const local=state.local;$('#local-recorder').hidden=!local?.enabled;if(!local?.enabled)return;
+ const recording=local.recording,ready=local.permission==='authorized'&&!local.stale;
+ $('#local-title').textContent=recording?'正在录音 · 已存入电脑':!ready?'需要准备麦克风':'本地录音已就绪';
+ $('#local-recorder').classList.toggle('is-recording',recording);
+ $('#local-description').textContent=local.error|| (recording?'下课点击「结束并上传」。听悟网页异常不会结束这份本地录音。':ready?'按课表自动开始，也可以现在开始。上传后继续保留本地音频。':'点击授权麦克风，在系统提示中选择允许。');
+ $('#local-permission').hidden=local.permission==='authorized';
+ $('#local-start').hidden=recording;$('#local-start').disabled=!ready||state.busy;
+ $('#local-stop').hidden=!recording;
+ updateLocalTimer();
+ const jobs=local.uploads?.jobs||[];$('#local-upload-count').textContent=jobs.length?`· ${jobs.filter(j=>j.status!=='uploaded').length} 条待上传`:'';
+ const list=$('#local-upload-list');list.replaceChildren();
+ if(!jobs.length){list.append(element('p','hint','结束录音后，这里会显示本地音频和上传结果。'));return;}
+ for(const job of jobs){
+  const row=element('article','local-upload-row'),info=element('div');
+  info.append(element('strong','',new Date(job.startedAt).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'})+' · '+localTime(job.durationSeconds)));
+  const labels={waiting:'等待上传',uploading:`正在上传 ${Math.round((job.progress||0)*100)}%`,uploaded:'已上传听悟 · 本地音频保留',retrying:'上传暂未完成 · 将自动重试',attention:'需要检查 · 本地音频保留'};
+  info.append(element('p','hint',(job.interrupted?'录音曾中断，请核对完整性。 ':'')+(job.error||labels[job.status]||'等待上传')));
+  const actions=element('div','local-file-actions'),download=element('a','text-button','下载音频');download.href=`/api/local-audio/${encodeURIComponent(job.id)}?token=${encodeURIComponent(token)}`;download.download='';download.referrerPolicy='no-referrer';actions.append(download);
+  if(job.url){const link=element('a','text-button','在听悟查看 ↗');link.href=job.url;link.target='_blank';link.rel='noopener noreferrer';actions.append(link);}
+  if(['retrying','attention'].includes(job.status)){const retry=element('button','secondary','重试上传');retry.onclick=async()=>{retry.disabled=true;try{toast((await api('local-retry',{id:job.id})).message);await refresh();}catch(e){toast(e.message);}finally{retry.disabled=false;}};actions.append(retry);}
+  row.append(info,actions);list.append(row);
+ }
 }
 function renderTodaySchedule(){
  const weekday=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Shanghai',weekday:'short'}).format(new Date());
@@ -58,8 +90,9 @@ function renderTodaySchedule(){
   let text=weekend?'周末不启动':!state.settings.enabled?'课表已暂停':'等待启动',tone='';
   if(!weekend&&state.settings.enabled&&run){
    if(run.status==='confirmed'){
-    text=run.source==='automatic'?'已自动开启':run.source==='existing'?'检测到已有录音':'已确认开始';tone='confirmed';
-    if(run.health&&run.health.status!=='recording'&&Date.now()-run.health.checkedAt<300000){text='状态需检查';tone='warning';}
+    text=['automatic','local'].includes(run.source)?'已自动开启':run.source==='existing'?'检测到已有录音':'已确认开始';tone='confirmed';
+    if(run.health?.status==='ended')text='已手动结束';
+    if(run.health&&!['recording','ended'].includes(run.health.status)&&Date.now()-run.health.checkedAt<300000){text='状态需检查';tone='warning';}
    }else if(['starting','pending','retrying','missed'].includes(run.status)){text={starting:'正在启动',pending:'等待确认',retrying:'正在重试',missed:'未确认开始'}[run.status];tone='warning';}
   }
   label.textContent=text;label.className='session-state'+(tone?' '+tone:'');
@@ -401,7 +434,10 @@ on('#naming-inspect',async()=>{toast((await api('naming-inspect')).message);});
 on('#toggle',()=>save(!state.settings.enabled));
 on('#open',async()=>{const r=await api('open');toast(r.message);});
 on('#check',async()=>{await api('check');toast('检查已完成');});
-on('#test-start',async()=>{if(confirm('现在启动真实麦克风录音？录音结束后，需要你亲自在通义听悟中点击结束。')){toast('正在进入听悟并自动点击录制…');const r=await api('start');toast(r.message);}});
+on('#test-start',async()=>{toast((await api('start')).message);});
+on('#local-start',async()=>{toast((await api('start')).message);});
+on('#local-stop',async()=>{const id=state.local?.active?.id;if(id)toast((await api('local-stop',{id})).message);});
+on('#local-permission',async()=>{toast((await api('local-permission')).message);});
 on('#test-reminder',async()=>{const r=await api('remind');toast(r.message);});
 $('#library-tab').addEventListener('click',()=>{location.hash='library';});
 $('#settings-tab').addEventListener('click',()=>{location.hash='settings';});

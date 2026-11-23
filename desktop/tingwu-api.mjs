@@ -2,11 +2,16 @@ import {randomUUID} from 'node:crypto';
 import {chromeCall} from './chrome-process.mjs';
 import {savedURL} from './naming.mjs';
 
-const routes={getTransList:'/api/trans/request?getTransList',getTransResult:'/api/trans/getTransResult',getTransDocEdit:'/api/doc/getTransDocEdit',getTransTag:'/api/tag/request?getTransTag',getAllLabInfo:'/api/lab/getAllLabInfo',syncTransTag:'/api/tag/request?syncTransTag'};
+const routes={getTransList:'/api/trans/request?getTransList',getTransResult:'/api/trans/getTransResult',getTransDocEdit:'/api/doc/getTransDocEdit',getTransTag:'/api/tag/request?getTransTag',getAllLabInfo:'/api/lab/getAllLabInfo',syncTransTag:'/api/tag/request?syncTransTag',generatePutLink:'/api/trans/request?generatePutLink',syncPutLink:'/api/trans/request?syncPutLink'};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 export function validateRequest(body){
  if(!routes[body.action])throw Error('不支持的听悟操作');
- if(body.action!=='getTransList' && !/^[\w-]{1,80}$/.test(body.transId||''))throw Error('无效录音编号');
+ if(!['getTransList','generatePutLink'].includes(body.action) && !/^[\w-]{1,80}$/.test(body.transId||''))throw Error('无效录音编号');
+ if(body.action==='generatePutLink' && (!/^local-[a-f0-9-]{36}$/.test(body.taskId||'') || body.useSts!==1 || body.fileContentType!=='audio/wav' || !Number.isSafeInteger(body.fileSize) || body.fileSize<=44 || body.fileSize>2*1024**3 || body.tag?.fileFormat!=='wav' || body.tag?.fileType!=='local' || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} 记录$/.test(body.tag?.showName||'')))throw Error('本地录音上传参数无效');
+ if(body.action==='syncPutLink'){
+  let u;try{u=new URL(body.fileLink);}catch{}
+  if(!u||u.protocol!=='https:'||!u.hostname.endsWith('.aliyuncs.com')||!Number.isSafeInteger(body.fileSize)||body.fileSize<=44)throw Error('录音上传确认参数无效');
+ }
  if(body.action==='syncTransTag' && (Object.keys(body.tag||{}).join(',')!=='showName' || typeof body.tag.showName!=='string' || body.tag.showName.length>100 || /[\r\n\t]/.test(body.tag.showName)))throw Error('只能更新单条录音的标题');
  return routes[body.action];
 }
