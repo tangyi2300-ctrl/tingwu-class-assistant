@@ -32,3 +32,13 @@ test('health checks use two advancing samples and never execute recording action
  assert.equal((await verifyRecordingHealth({read:async()=>({...live(10),ongoing:false}),wait:async()=>{}})).status,'not-recording');
  assert.equal((await verifyRecordingHealth({read:async()=>live(10),wait:async()=>{}})).status,'stalled');
 });
+test('a Tingwu limit or network alert overrides an advancing timer without claiming a confirmed stop',async()=>{
+ for(const kind of ['limit','network','quota']){
+  const recordingIssue={kind,message:'录音时长已达上限'};let reads=0;
+  const result=await verifyRecordingHealth({read:async()=>({...live(++reads),recordingIssue}),wait:async()=>{}});
+  assert.equal(result.status,'attention');assert.equal(result.issueKind,kind);assert.equal(result.elapsedSeconds,1);assert.equal(reads,1);
+  reads=0;const later=await verifyRecordingHealth({read:async()=>({...live(++reads),...(reads===2?{recordingIssue}:{})}),wait:async()=>{}});
+  assert.equal(later.status,'attention');assert.equal(reads,2);
+  await assert.rejects(()=>run([{...live(1),recordingIssue},{...live(2),recordingIssue}]).go(),/录音时长已达上限/);
+ }
+});

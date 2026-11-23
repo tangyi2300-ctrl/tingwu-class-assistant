@@ -1,5 +1,5 @@
 (() => {
-  if (window.__tingwuClassDesktopV3?.revision===2) return;
+  if (window.__tingwuClassDesktopV3?.revision===3) return;
   const tracks=new Set(),media=navigator.mediaDevices;
   if(media?.getUserMedia){const original=media.getUserMedia.bind(media);media.getUserMedia=async(...args)=>{const stream=await original(...args);stream.getAudioTracks().forEach(t=>tracks.add(t));return stream;};}
   function visible(e){
@@ -24,6 +24,15 @@
     return leaves.length===1?leaves[0]:null;
   }
   const markers=['开启实时记录','开始录音','开始记录','录音中','录音中...','录音中…','暂停中','暂停中...','暂停中…','已暂停','录音已暂停','结束录音','停止录音','暂停录音','继续录音','恢复录音','立即登录','手机号登录','短信登录','密码登录'];
+  function recordingIssue(){
+    // Only inspect visible alerts, never lecture text that may mention an error.
+    const alerts=[...document.querySelectorAll('[role="dialog"],[role="alert"],.ant-modal,.ant-message-notice,.ant-notification-notice')].filter(visible);
+    const lines=alerts.flatMap(e=>(e.innerText||'').split(/\n/).map(t=>t.trim())).filter(t=>t&&t.length<=180);
+    for(const [kind,pattern] of [['limit',/支持最长.*已超时|录音时长.*(?:已达|达到).*上限|录音会话.*(?:失效|过期)/],['network',/网络异常.*重试|连接已断开|网络连接失败/],['quota',/转写时长.*(?:用完|不足)|存储空间不足/]]){
+      const message=lines.find(t=>pattern.test(t));if(message)return {kind,message};
+    }
+    return null;
+  }
   function status(){
     const controls=markers.filter(t=>exact([t])).map(text=>({text}));
     const timerLabels=[];
@@ -36,11 +45,12 @@
     const ongoing=[...tracks].some(t=>t.readyState==='live')||controls.some(c=>/^(录音中|暂停中|已暂停|录音已暂停|结束录音|停止录音|暂停录音|继续录音|恢复录音)/.test(c.text));
     const loginRequired=controls.some(c=>/登录/.test(c.text))||/扫码登录|短信登录|密码登录|手机号登录/.test(text)||/^\/login/.test(location.pathname);
     if(loginRequired&&!controls.some(c=>/登录/.test(c.text)))controls.push({text:'立即登录'});
-    return {url:location.href,path:location.pathname,controls,timerLabels,ongoing,loginRequired,microphoneDenied,homeReady:!!exact(['新建','开启实时记录','开始录音']),microphone:[...tracks].some(t=>t.readyState==='live')};
+    return {url:location.href,path:location.pathname,controls,timerLabels,ongoing,loginRequired,microphoneDenied,recordingIssue:recordingIssue(),homeReady:!!exact(['新建','开启实时记录','开始录音']),microphone:[...tracks].some(t=>t.readyState==='live')};
   }
   const attempts=new Map();
   function step(id,deadline=Infinity){
     const s=status();
+    if(s.recordingIssue)return {...s,action:'attention'};
     if(s.ongoing)return {...s,action:'ongoing'};
     if(s.loginRequired)return {...s,action:'login-required'};
     if(Date.now()>=deadline)return {...s,action:'deadline'};
@@ -74,6 +84,6 @@
     field.dispatchEvent(new FocusEvent('focusout',{bubbles:true}));
     return {submitted:field.value===newTitle};
   }
-  window.__tingwuClassDesktopV3={revision:2,status,step,metadata,writeTitle};
+  window.__tingwuClassDesktopV3={revision:3,status,step,metadata,writeTitle};
   window.__tingwuClassDesktopV2=window.__tingwuClassDesktopV3;
 })();

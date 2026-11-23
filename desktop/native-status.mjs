@@ -14,7 +14,7 @@ export function nativeStatus(snapshot={}){
  const timer=timers.find(t=>t.includes('/')) || (timers.length>=2 && seconds(timers.at(-1))>=1800?timers.at(-2):timers.at(-1));
  const parts=timer?.split('/')[0].trim().split(':').map(Number);
  const elapsedSeconds=parts?.length>=2 && parts.every(Number.isFinite)?parts.reduce((a,n)=>a*60+n,0):null;
- return {ongoing,live,paused,elapsedSeconds,loginRequired,microphoneDenied:!!snapshot.microphoneDenied || labels.some(t=>/麦克风权限/.test(t)),homeReady:!!snapshot.homeReady || labels.some(t=>['开启实时记录','开始录音','开始记录'].includes(t)),path:snapshot.url?new URL(snapshot.url).pathname:'',url:snapshot.url||'',noTab:!!snapshot.noTab,browserClosed:!!snapshot.browserClosed,locked:!!snapshot.locked,controlMode:'accessibility',labels};
+ return {ongoing,live,paused,elapsedSeconds,loginRequired,recordingIssue:snapshot.recordingIssue||null,microphoneDenied:!!snapshot.microphoneDenied || labels.some(t=>/麦克风权限/.test(t)),homeReady:!!snapshot.homeReady || labels.some(t=>['开启实时记录','开始录音','开始记录'].includes(t)),path:snapshot.url?new URL(snapshot.url).pathname:'',url:snapshot.url||'',noTab:!!snapshot.noTab,browserClosed:!!snapshot.browserClosed,locked:!!snapshot.locked,controlMode:'accessibility',labels};
 }
 export function recordingAdvanced(before,after){
  return !!before && before.live && !before.paused && before.path==='/doc/record' && !after.paused && after.live && after.path==='/doc/record' && before.tabId===after.tabId && before.windowId===after.windowId && before.elapsedSeconds!==null && after.elapsedSeconds!==null && after.elapsedSeconds>before.elapsedSeconds;

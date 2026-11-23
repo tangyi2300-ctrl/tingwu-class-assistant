@@ -91,5 +91,26 @@ test('an existing manual recording is not logged as an automatic start',async()=
 test('30-second preclass health checks detect a stop without restarting a manually ended recording',async()=>{
  const h=harness('13:50:00');let checks=0;h.verifyRecording=async()=>{checks++;return {status:'recording',elapsedSeconds:40};};await h.cycle();h.advance('13:50:10');await h.cycle();assert.equal(checks,0);h.advance('13:50:30');await h.cycle();assert.equal(checks,1);
  h.advance('13:51:00');h.verifyRecording=async()=>{checks++;return {status:'not-recording',message:'已结束'};};await h.cycle();assert.equal(h.starts,1);assert.ok(h.state.completed['2026-11-16:afternoon']);assert.equal(h.state.sessionRuns['2026-11-16:afternoon'].health.status,'not-recording');assert.ok(h.notices.some(n=>n.m.includes('复查未通过')));
- h.advance('13:58:00');await h.cycle();assert.ok(h.state.alerted['2026-11-16:afternoon:before-class']);assert.equal(h.starts,1);h.advance('14:02:00');const previous=checks;await h.cycle();assert.equal(checks,previous);assert.equal(h.starts,1);
+ h.advance('13:58:00');await h.cycle();assert.ok(h.state.alerted['2026-11-16:afternoon:before-class']);assert.equal(h.starts,1);h.advance('14:02:00');const previous=checks;await h.cycle();assert.equal(checks,previous+1);assert.equal(h.starts,1);
+});
+
+test('midclass interruption is logged and notified once, without restarting; recovery and class cutoff are observed',async()=>{
+ for(const [kind,start,stop,repeat,recover,end] of [['morning','09:55:00','10:55:00','11:05:00','11:06:00','12:00:00'],['afternoon','13:50:00','14:49:40','15:00:00','15:01:00','18:00:00']]){
+  const h=harness(start);let checks=0;
+  h.verifyRecording=async()=>{checks++;return {status:'attention',issueKind:'limit',elapsedSeconds:3498,message:'听悟提示：录音时长已达上限'};};
+  await h.cycle();const before=h.notices.length;
+  h.advance(stop);await h.cycle();assert.equal(checks,1);assert.equal(h.starts,1);assert.equal(h.notices.length,before+1);
+  assert.ok(h.logs.some(l=>l.m.includes('3498')&&l.m.includes('录音时长已达上限')));
+  h.reload();h.advance(repeat);await h.cycle();assert.equal(h.notices.length,before+1,'same incident must not repeatedly interrupt work');assert.equal(h.starts,1);
+  h.verifyRecording=async()=>{checks++;return {status:'recording',elapsedSeconds:70,message:'已复查录音计时持续增加'};};
+  h.advance(recover);await h.cycle();assert.equal(h.state.sessionRuns['2026-11-16:'+kind].health.status,'recording');assert.ok(h.logs.some(l=>l.m.includes('已恢复')));
+  const prior=checks;h.advance(end);await h.cycle();assert.equal(checks,prior);assert.equal(h.starts,1);
+ }
+});
+test('a manually paused or ended class stays stopped while monitoring continues',async()=>{
+ const h=harness('13:50:00');await h.cycle();
+ for(const [time,status] of [['14:30:00','paused'],['15:00:00','not-recording']]){
+  h.verifyRecording=async()=>({status,message:'用户已暂停或结束'});h.advance(time);await h.cycle();
+  assert.equal(h.starts,1);assert.ok(h.state.completed['2026-11-16:afternoon']);
+ }
 });

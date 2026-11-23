@@ -5,6 +5,8 @@ base=Path.home()/'Library/Application Support/TingwuClassAssistant'
 app=Path.home()/'Desktop/听课搭子.app'
 label='com.tangyi.tingwuclassassistant.agent'
 plist=Path.home()/'Library/LaunchAgents'/f'{label}.plist'
+guard_label='com.tangyi.tingwuclassassistant.guard'
+guard_plist=Path.home()/'Library/LaunchAgents'/f'{guard_label}.plist'
 if app.exists():
  info=app/'Contents/Info.plist'
  if not info.exists() or plistlib.loads(info.read_bytes()).get('CFBundleIdentifier')!='com.tangyi.tingwuclassassistant':
@@ -12,10 +14,11 @@ if app.exists():
 subprocess.run(['/usr/bin/swiftc',str(root/'native/TingwuUI.swift'),'-o',str(root/'native/tingwu-ui')],check=True)
 node_source=shutil.which('node')
 if not (base/'runtime/node').exists() and not node_source:raise SystemExit('请先安装 Node.js，再运行安装程序。')
-if plist.exists():
- old=plistlib.loads(plist.read_bytes())
- if old.get('Label')!=label:raise SystemExit('后台服务名称冲突')
- subprocess.run(['launchctl','bootout',f'gui/{os.getuid()}',str(plist)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+for target,expected in [(guard_plist,guard_label),(plist,label)]:
+ if target.exists():
+  old=plistlib.loads(target.read_bytes())
+  if old.get('Label')!=expected:raise SystemExit('后台服务名称冲突')
+  subprocess.run(['launchctl','bootout',f'gui/{os.getuid()}',str(target)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 base.mkdir(parents=True,exist_ok=True)
 for name in ['desktop','extension','native']:
  shutil.copytree(root/name,base/name,dirs_exist_ok=True)
@@ -25,15 +28,21 @@ if not (base/'runtime/node').exists():shutil.copy2(Path(node_source).resolve(),b
 (base/'logs').mkdir(exist_ok=True)
 (base/'data').mkdir(mode=0o700,exist_ok=True)
 contents=app/'Contents';(contents/'MacOS').mkdir(parents=True,exist_ok=True);(contents/'Resources').mkdir(exist_ok=True)
-info={'CFBundleName':'听课搭子','CFBundleDisplayName':'听课搭子','CFBundleIdentifier':'com.tangyi.tingwuclassassistant','CFBundleVersion':'0.11.0','CFBundleShortVersionString':'0.11.0','CFBundleExecutable':'launcher','CFBundlePackageType':'APPL','LSUIElement':True,'CFBundleIconFile':'AppIcon','NSAppleEventsUsageDescription':'在上课前打开通义听悟并点击开始录音。'}
+info={'CFBundleName':'听课搭子','CFBundleDisplayName':'听课搭子','CFBundleIdentifier':'com.tangyi.tingwuclassassistant','CFBundleVersion':'0.11.2','CFBundleShortVersionString':'0.11.2','CFBundleExecutable':'launcher','CFBundlePackageType':'APPL','LSUIElement':True,'CFBundleIconFile':'AppIcon','NSAppleEventsUsageDescription':'在上课前打开通义听悟并点击开始录音。'}
 (contents/'Info.plist').write_bytes(plistlib.dumps(info))
 config={'Label':label,'ProgramArguments':[str(base/'runtime/node'),str(base/'desktop/server.mjs')],'WorkingDirectory':str(base),'RunAtLoad':True,'KeepAlive':True,'ThrottleInterval':30,'ProcessType':'Background','StandardOutPath':str(base/'logs/service.log'),'StandardErrorPath':str(base/'logs/error.log')}
 plist.parent.mkdir(exist_ok=True);plist.write_bytes(plistlib.dumps(config))
+guard_config={'Label':guard_label,'ProgramArguments':[str(base/'runtime/node'),str(base/'desktop/service-guard.mjs')],'WorkingDirectory':str(base),'RunAtLoad':True,'StartInterval':30,'ThrottleInterval':30,'ProcessType':'Background','StandardOutPath':str(base/'logs/guard-output.log'),'StandardErrorPath':str(base/'logs/guard-error.log')}
+guard_plist.write_bytes(plistlib.dumps(guard_config))
 launcher='''#!/bin/bash
 set -eu
 USER_DOMAIN="gui/$(id -u)"
 SERVICE="com.tangyi.tingwuclassassistant.agent"
 PLIST='''+shlex.quote(str(plist))+'''
+GUARD_PLIST='''+shlex.quote(str(guard_plist))+'''
+if ! /bin/launchctl print "$USER_DOMAIN/com.tangyi.tingwuclassassistant.guard" >/dev/null 2>&1; then
+ /bin/launchctl bootstrap "$USER_DOMAIN" "$GUARD_PLIST" >/dev/null 2>&1 || true
+fi
 if ! /bin/launchctl print "$USER_DOMAIN/$SERVICE" >/dev/null 2>&1; then
  /bin/launchctl bootstrap "$USER_DOMAIN" "$PLIST"
 fi
@@ -55,6 +64,7 @@ for size in [16,32,128,256,512]:
   subprocess.run(['sips','-z',str(size*scale),str(size*scale),str(root/'extension/icon.png'),'--out',str(iconset/name)],check=True,stdout=subprocess.DEVNULL)
 subprocess.run(['iconutil','-c','icns',str(iconset),'-o',str(contents/'Resources/AppIcon.icns')],check=True)
 subprocess.run(['launchctl','bootstrap',f'gui/{os.getuid()}',str(plist)],check=True)
+subprocess.run(['launchctl','bootstrap',f'gui/{os.getuid()}',str(guard_plist)],check=True)
 print('Installed:',app)
 print('Support:',base)
 print('LaunchAgent:',plist)

@@ -1,4 +1,5 @@
-const $=s=>document.querySelector(s), token=$('meta[name="tingwu-token"]').content;
+const $=s=>document.querySelector(s);
+let token=$('meta[name="tingwu-token"]').content;
 const homeClockFormat=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'numeric',day:'numeric',weekday:'long',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
 function updateHomeClock(){
  const now=new Date(),p=Object.fromEntries(homeClockFormat.formatToParts(now).map(x=>[x.type,x.value]));
@@ -31,8 +32,8 @@ function render(fields=false){
  $('#schedule-summary').textContent=`周一至周五 · ${state.settings.morning} / ${state.settings.afternoon}`;
  const c=state.connection;
  let message='点击「检查登录与自动点击」确认准备状态';
- if(c){message=!c.ok?c.error:c.browserClosed?'Chrome 尚未打开':c.noTab?'请先打开通义听悟':c.loginRequired?'听悟需要登录验证，请在 Chrome 完成':c.paused?'已有录音已暂停，请在听悟手动恢复':c.ongoing?'已连接录音页面，计时 '+(c.elapsedSeconds??'待确认')+' 秒':c.homeReady?'已连接听悟工作台，自动点击功能可用':'已连接浏览器，等待听悟工作台加载';}
- $('#connection').textContent=message;$('#connection').classList.toggle('warning',!!c&&(!c.ok||c.loginRequired||c.noTab));
+ if(c){message=!c.ok?c.error:c.browserClosed?'Chrome 尚未打开':c.noTab?'请先打开通义听悟':c.loginRequired?'听悟需要登录验证，请在 Chrome 完成':c.recordingIssue?'听悟提示：'+c.recordingIssue.message:c.paused?'已有录音已暂停，请在听悟手动恢复':c.ongoing?'已连接录音页面，计时 '+(c.elapsedSeconds??'待确认')+' 秒':c.homeReady?'已连接听悟工作台，自动点击功能可用':'已连接浏览器，等待听悟工作台加载';}
+ $('#connection').textContent=message;$('#connection').classList.toggle('warning',!!c&&(!c.ok||c.loginRequired||c.noTab||c.recordingIssue));
  const pending=(state.sessions||[]).find(s=>['starting','retrying','pending','missed'].includes(s.status));
  const confirmed=(state.sessions||[]).filter(s=>s.status==='confirmed');
  const blocked=state.connection && !state.connection.ok;
@@ -176,7 +177,25 @@ function renderNaming(){
   card.append(actions);container.append(card);
  }
 }
-async function refresh(fields=false){const r=await fetch('/api/status');if(!r.ok)throw Error('桌面服务未连接');state=await r.json();render(fields);}
+function showServiceDisconnected(){
+ $('#service-alert').hidden=false;
+ $('#status-title').textContent='后台连接中断';$('#status-dot').classList.remove('on');
+ $('#run-health').textContent='自动录音状态待确认，正在等待后台恢复。';$('#run-health').classList.add('warning');
+ $('#next').textContent='课表设置已保留，恢复连接后继续执行。';
+ for(const kind of ['morning','afternoon']){const label=$('#'+kind+'-session-state');label.textContent='服务待恢复';label.className='session-state warning';}
+}
+async function refresh(fields=false){
+ try{
+  const r=await fetch('/api/status',{signal:AbortSignal.timeout(5000)});if(!r.ok)throw Error('桌面服务未连接');const nextState=await r.json();
+  if(!state||state.runtime?.startedAt!==nextState.runtime?.startedAt){
+   // A recovered service has a new request token; keep existing app tabs usable.
+   const response=await fetch('/',{signal:AbortSignal.timeout(5000)});if(!response.ok)throw Error('桌面服务正在恢复');
+   const fresh=new DOMParser().parseFromString(await response.text(),'text/html').querySelector('meta[name="tingwu-token"]')?.content;
+   if(!fresh)throw Error('尚未取得新的连接信息');token=fresh;$('meta[name="tingwu-token"]').content=fresh;
+  }
+  const first=!state;state=nextState;$('#service-alert').hidden=true;render(fields||first);
+ }catch(error){showServiceDisconnected();throw error;}
+}
 function on(selector,fn){$(selector).addEventListener('click',async()=>{const b=$(selector);b.disabled=true;try{await fn();await refresh();}catch(e){toast(e.message);}finally{b.disabled=false;}});}
 async function save(enabled=state.settings.enabled){const settings={enabled,...Object.fromEntries(['morning','noon','afternoon','evening'].map(k=>[k,$('#'+k).value]))};const result=await api('save',{settings});toast(result.message);await refresh(true);}
 let detailSelected=null,detailGeneration=0,detailTimer,detailData=null,detailRenderKey='',detailView='map',libraryScroll=0;
@@ -388,7 +407,5 @@ $('#library-tab').addEventListener('click',()=>{location.hash='library';});
 $('#settings-tab').addEventListener('click',()=>{location.hash='settings';});
 $('#recording-search').addEventListener('input',renderLibrary);
 $('#recordings-refresh').addEventListener('click',()=>requestLibraryRefresh(true));
-await refresh(true);
-routeView();
-if(!state.preview)requestLibraryRefresh();
-setInterval(async()=>{try{await refresh();if(!state.preview&&!document.hidden&&!$('#library-page').hidden&&!state.runtime?.libraryBusy&&Date.now()-libraryAttemptAt>=10000&&(libraryDeferred||Date.now()-(state.library?.updatedAt||0)>=60000))requestLibraryRefresh();}catch{toast('桌面服务暂时不可用，请重新双击桌面应用');}},5000);
+try{await refresh(true);routeView();if(!state.preview)requestLibraryRefresh();}catch{}
+setInterval(async()=>{try{const first=!state;await refresh();if(first)routeView();if(!state.preview&&!document.hidden&&!$('#library-page').hidden&&!state.runtime?.libraryBusy&&Date.now()-libraryAttemptAt>=10000&&(libraryDeferred||Date.now()-(state.library?.updatedAt||0)>=60000))requestLibraryRefresh();}catch{}},5000);

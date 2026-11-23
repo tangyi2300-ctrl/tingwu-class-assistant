@@ -12,7 +12,8 @@ const dir=await mkdtemp(path.join(tmpdir(),'tingwu-desktop-test-'));
 const topics=['镜头语言与叙事节奏','角色设计：从轮廓到性格表达','场景光影与色彩关系','AI 视频工作流与提示词拆解','短片分镜与画面构图','声音设计与情绪表达','人物动作与表演细节'];
 const recordings=Array.from({length:21},(_,i)=>({transId:`demo-${i}`,url:`https://tingwu.aliyun.com/doc/transcripts/demo-${i}`,title:`2026-01-${String(24-Math.floor(i/2)).padStart(2,'0')}｜${i%2?'09:55':'13:55'}｜${topics[i%topics.length]}`,recordedAt:Date.parse(`2026-01-${String(24-Math.floor(i/2)).padStart(2,'0')}T${i%2?'09:55':'13:55'}:00+08:00`),duration:3600+i*65,status:0}));
 await writeFile(path.join(dir,'state.json'),JSON.stringify({settings:{enabled:false,morning:'09:55',noon:'12:10',afternoon:'13:50',evening:'18:10'},completed:{},logs:[],connection:null,library:{records:recordings,updatedAt:Date.now(),error:null}}));
-const child=spawn(process.execPath,[path.join(root,'desktop/server.mjs')],{env:{...process.env,TINGWU_DATA_DIR:dir,TINGWU_PORT:"18767"},stdio:'pipe'});
+function startServer(){return spawn(process.execPath,[path.join(root,'desktop/server.mjs')],{env:{...process.env,TINGWU_DATA_DIR:dir,TINGWU_PORT:"18767"},stdio:'pipe'});}
+let child=startServer();
 let browser;
 try {
  await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('exit',()=>reject(Error('test server exited')));setTimeout(()=>reject(Error('test server timeout')),5000).unref();});
@@ -120,6 +121,20 @@ try {
  await page.getByRole('button',{name:'我的录音',exact:true}).click();
  await page.setViewportSize({width:390,height:844});await page.waitForTimeout(300);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await page.screenshot({path:path.join(root,'preview/录音列表手机.png'),fullPage:false});
+ // A service removal must visibly invalidate the old green status. After recovery,
+ // keep this tab usable with the new token rather than requiring a page reload.
+ const oldToken=await page.locator('meta[name="tingwu-token"]').getAttribute('content');
+ const exited=new Promise(resolve=>child.once('exit',resolve));child.kill();await exited;
+ await page.locator('#service-alert').waitFor({state:'visible',timeout:15000});
+ assert.equal(await page.locator('#status-title').textContent(),'后台连接中断');
+ assert.equal(await page.locator('#status-dot').evaluate(e=>e.classList.contains('on')),false);
+ child=startServer();
+ await page.locator('#service-alert').waitFor({state:'hidden',timeout:15000});
+ assert.notEqual(await page.locator('meta[name="tingwu-token"]').getAttribute('content'),oldToken);
+ await page.getByRole('button',{name:'课表与设置',exact:true}).click();
+ await page.getByRole('button',{name:'保存时间'}).click();
+ await page.waitForFunction(()=>document.querySelector('#toast').textContent.includes('已暂停'));
+ assert.equal((await (await fetch(url+'/api/status')).json()).settings.enabled,false);
  // Exercise the desktop page bridge on simulated Tingwu markup. No real microphone calls.
  await page.route('https://tingwu.aliyun.com/**',r=>r.fulfill({contentType:'text/html; charset=utf-8',body:'<html><body><button>新建</button><button hidden id="record">开启实时记录</button></body></html>'}));
  await page.goto('https://tingwu.aliyun.com/home');

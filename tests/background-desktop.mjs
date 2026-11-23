@@ -31,5 +31,15 @@ try{
  const ended=await recording.evaluate(()=>window.__tingwuClassDesktopV3.status());
  assert.equal(ended.ongoing,false,'collapsed audio bar on home must not count as a paused session');
  assert.equal(ended.homeReady,true);
+ // A visible service error is evidence; hidden dialogs and lecture text are not.
+ await recording.evaluate(()=>{document.body.innerHTML='<p>录音时长已达上限</p><div role="dialog" hidden>支持最长6小时录音，已超时</div><button id="start">开始录音</button>';document.querySelector('#start').onclick=()=>window.starts++;});
+ assert.equal((await recording.evaluate(()=>window.__tingwuClassDesktopV3.status())).recordingIssue,null);
+ await recording.evaluate(()=>{document.querySelector('[role="dialog"]').hidden=false;});
+ const limited=await read();assert.equal(limited.recordingIssue.kind,'limit');assert.match(limited.recordingIssue.message,/已超时/);
+ assert.equal((await recording.evaluate(()=>window.__tingwuClassDesktopV3.step('error'))).action,'attention');
+ assert.deepEqual(await recording.evaluate(()=>({starts,stops})),{starts:1,stops:0});
+ await recording.evaluate(()=>{document.querySelector('[role="dialog"]').textContent='网络异常，请恢复后重试';});
+ assert.equal((await read()).recordingIssue.kind,'network');
+ assert.deepEqual(await work.evaluate(()=>({value:document.querySelector('textarea').value,focused:document.activeElement.tagName})),beforeFocus);
  console.log('PASS: correct normal Chrome selected alongside headless browser; background start and advancing timer; other work page unchanged; no stop clicks; deadline enforced.');
 }finally{await browser.close();}

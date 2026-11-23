@@ -10,6 +10,7 @@ export async function ensureRecordingStarted({attemptId,deadline=Infinity,prepar
   if(cancelled())return {cancelled:true};
   let result;try{result=await step(attemptId,until);lastError=null;}catch(error){lastError=error;await wait(1500);continue;}
   const observedAt=now();
+  if(result.recordingIssue)throw Error('听悟提示：'+result.recordingIssue.message);
   if(result.action==='ongoing'){
    await onSample(result);
    if(result.paused)throw Error('已有录音处于暂停状态，请手动恢复；不会把暂停当作录音成功');
@@ -33,10 +34,13 @@ export async function ensureRecordingStarted({attemptId,deadline=Infinity,prepar
  throw lastError||Error('尚未确认录音计时持续增加，将重新定位后重试');
 }
 export async function verifyRecordingHealth({read,wait=sleep}){
+ const issue=s=>s.recordingIssue?{status:'attention',elapsedSeconds:s.elapsedSeconds,issueKind:s.recordingIssue.kind,message:'听悟提示：'+s.recordingIssue.message}:null;
  const before=await read();
+ if(issue(before))return issue(before);
  if(before.paused)return {status:'paused',elapsedSeconds:before.elapsedSeconds,message:'听悟录音已暂停，需要你手动恢复'};
  if(!before.ongoing)return {status:'not-recording',message:'听悟当前未显示正在录音，请检查页面'};
  await wait(2200);const after=await read();
+ if(issue(after))return issue(after);
  if(after.paused)return {status:'paused',elapsedSeconds:after.elapsedSeconds,message:'听悟录音已暂停，需要你手动恢复'};
  if(!after.ongoing)return {status:'not-recording',message:'听悟当前未显示正在录音，请检查页面'};
  if(recordingAdvanced(before,after))return {status:'recording',elapsedSeconds:after.elapsedSeconds,message:'已复查录音计时持续增加'};
