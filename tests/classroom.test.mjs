@@ -6,7 +6,7 @@ import path from 'node:path';
 import {EventEmitter} from 'node:events';
 import {createClassroom} from '../desktop/classroom.mjs';
 import {buildRecordingDetail,withLocalNotes} from '../desktop/recording-detail.mjs';
-async function fixture(t){const dir=await mkdtemp(path.join(tmpdir(),'tingwu-classroom-'));t.after(()=>rm(dir,{recursive:true,force:true}));const records=[{id:'one',file:'/unused/one.wav',status:'recording'},{id:'two',file:'/unused/two.wav',status:'saved'}];const recorder={records:async()=>records,status:async()=>({recording:true,active:{id:'one'}})};return {dir,recorder,enabled:false};}
+async function fixture(t){const dir=await mkdtemp(path.join(tmpdir(),'tingwu-classroom-'));t.after(()=>rm(dir,{recursive:true,force:true}));await writeFile(path.join(dir,'one.wav'),'fixture');const records=[{id:'one',file:path.join(dir,'one.wav'),status:'recording'},{id:'two',file:'/unused/two.wav',status:'saved'}];const recorder={records:async()=>records,status:async()=>({recording:true,active:{id:'one'}})};return {dir,recorder,enabled:false};}
 test('notes survive restart, keep exact Chinese text, and isolate recordings',async t=>{
  const args=await fixture(t),c=createClassroom(args),text='# 课堂重点\n构图与光线 🎬\n<script>保持原文</script>';
  const saved=await c.saveNotes('one',{text,revision:0});assert.equal(saved.revision,1);
@@ -26,7 +26,7 @@ test('notes reject unknown recordings, traversal and invalid payloads',async t=>
 });
 test('polls reuse an active transcriber and never issue microphone commands',async t=>{
  const args=await fixture(t),launches=[],child=new EventEmitter();const c=createClassroom({...args,enabled:true,launch:a=>{launches.push(a);return child;}});
- await c.monitor();await c.get('one');await c.monitor();assert.equal(launches.length,1);assert.deepEqual(launches[0].slice(0,2),['/unused/one.wav','/unused/one.json']);
+ await c.monitor();await c.get('one');await c.monitor();assert.equal(launches.length,1);assert.deepEqual(launches[0].slice(0,2),[path.join(args.dir,'one.wav'),path.join(args.dir,'one.json')]);
  child.emit('exit',0);await writeFile(path.join(args.dir,'one.transcript.json'),JSON.stringify({phase:'complete',segments:[]}));await c.get('one');assert.equal(launches.length,1);
 });
 test('local notes supplement the outline without changing or replacing cloud notes',()=>{

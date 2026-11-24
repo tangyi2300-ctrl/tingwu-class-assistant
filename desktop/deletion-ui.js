@@ -15,7 +15,7 @@ export function createDeletionUI({api,onDeleted}){
   finally{if(current===generation){pending=false;confirm.disabled=false;cancel.disabled=false;}}
  }
  async function open(selector,title){
-  if(dialog.open)return;target=selector;$('#delete-recording-title').textContent=title;$('#delete-effect').textContent='确认前将核对录音和上传状态。';$('#delete-backup').textContent='电脑上已有的原始音频、文字和笔记备份会保留。';
+  if(dialog.open)return;target=selector;$('#delete-recording-title').textContent=title;$('#delete-effect').textContent='确认前将核对录音和上传状态。';$('#delete-backup').textContent='已清理的音频没有本机备份；未确认上传的临时音频及文字、笔记缓存仍保留。';
   dialog.showModal();cancel.focus();await prepare();
  }
  confirm.onclick=async()=>{

@@ -10,12 +10,12 @@
 </header>
 <p id="service-alert" class="service-alert" role="alert" hidden>后台连接中断，自动录音状态待确认。正在等待自动恢复，也可以重新打开桌面「听课搭子」。</p>
 <section id="local-recorder" class="local-recorder" aria-labelledby="local-title" hidden>
- <div class="local-top"><div><p class="eyebrow">先存电脑 · 结束后上传听悟</p><h2 id="local-title">本地录音准备中</h2><p id="local-description" class="hint"></p></div><strong id="local-timer" class="local-timer" aria-label="当前录音时长">00:00:00</strong><div class="local-actions"><button id="local-permission" class="primary" hidden>授权麦克风</button><button id="local-start" class="primary">开始录音</button><button id="local-stop" class="stop-recording" hidden>■ 结束并上传</button></div></div>
- <details id="local-files" class="local-files"><summary>本地音频与上传记录 <span id="local-upload-count"></span></summary><div id="local-upload-list"></div></details>
+ <div class="local-top"><div><p class="eyebrow">结束后存入听悟 · 自动清理临时音频</p><h2 id="local-title">本地录音准备中</h2><p id="local-description" class="hint"></p></div><strong id="local-timer" class="local-timer" aria-label="当前录音时长">00:00:00</strong><div class="local-actions"><button id="local-permission" class="primary" hidden>授权麦克风</button><button id="local-start" class="primary">开始录音</button><button id="local-stop" class="stop-recording" hidden>■ 结束并上传</button></div></div>
+ <details id="local-files" class="local-files"><summary>上传记录与临时音频 <span id="local-upload-count"></span></summary><div id="local-upload-list"></div></details>
 </section>
 <section id="classroom-page" aria-labelledby="classroom-title" hidden>
  <div class="classroom-heading"><div><p id="classroom-date" class="eyebrow"></p><h1 id="classroom-title">实时课堂</h1></div><a href="#library" class="text-button">查看历史录音 →</a></div>
- <div id="classroom-empty" class="library-empty"><strong>现在没有正在录制的课堂</strong><p>点击上方「开始录音」，或等待课表自动开始。<br>历史课堂的文字与笔记，可在「本地音频与上传记录」里打开。</p></div>
+ <div id="classroom-empty" class="library-empty"><strong>现在没有正在录制的课堂</strong><p>点击上方「开始录音」，或等待课表自动开始。<br>历史课堂的文字与笔记，可在「上传记录与临时音频」里打开。</p></div>
  <div id="classroom-workspace" class="classroom-workspace" hidden>
   <section class="classroom-panel live-panel" aria-labelledby="live-text-title">
    <div class="classroom-panel-heading"><div><h2 id="live-text-title">实时文字</h2><p id="transcript-state" role="status">正在连接…</p></div><span class="local-label">本机转写</span></div>
@@ -82,5 +82,5 @@
  </div></details>
  <details class="settings-fold log-section"><summary>运行记录<span>遇到问题时查看</span></summary><div class="fold-content"><ul id="logs"><li>还没有运行记录。</li></ul></div></details>
 </section>
-<footer>录音先保存在本机 · 上传成功仍保留音频<span>下课请点击「结束并上传」</span></footer>
+<footer>录音存入听悟 · 核验成功后自动清理本机音频<span>下课请点击「结束并上传」</span></footer>
 </main><section id="notice" hidden><div class="notice-icon">◷</div><p class="eyebrow">听课搭子 · 温柔提醒</p><h1 id="notice-title">下课了，<br>现在结束录音吗？</h1><p id="notice-text">请在听课搭子中点击「结束并上传」。<br>如果还在上课，就继续记录吧。</p><button id="go-recording" class="primary wide">返回录音首页</button><button id="dismiss" class="secondary wide">还在上课，继续录制</button><small>返回首页后，由你点击结束录音。</small></section><dialog id="delete-dialog" aria-labelledby="delete-heading" aria-describedby="delete-effect delete-backup"><h2 id="delete-heading">删除这条录音？</h2><p id="delete-recording-title"></p><p id="delete-effect"></p><p id="delete-backup" class="hint"></p><p id="delete-error" role="status" aria-live="polite"></p><div class="delete-dialog-actions"><button id="delete-cancel" class="secondary" autofocus>取消</button><button id="delete-confirm" class="danger">核对录音</button></div></dialog><div id="toast" role="status" hidden></div><script type="module" src="app.js"></script></body></html>

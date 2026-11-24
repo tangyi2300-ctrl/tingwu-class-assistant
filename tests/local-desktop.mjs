@@ -37,6 +37,10 @@ try{
  assert.equal(calls.filter(c=>c.path==='/api/local-stop').length,0);
  await page.locator('#local-stop').click();await page.waitForFunction(()=>document.querySelector('#local-stop').hidden);
  await page.locator('#local-files summary').click();assert.match(await page.locator('#local-upload-list').textContent(),/本地音频已保留/);assert.equal(await page.getByText('下载音频',{exact:true}).count(),1);
+ const job=status.local.uploads.jobs[0];Object.assign(job,{status:'uploaded',error:null,transId:'cloud-fixture',url:'https://tingwu.aliyun.com/doc/transcripts/cloud-fixture',audioCleanupError:'云端核对暂未完成，临时音频保留'});
+ await page.waitForFunction(()=>document.querySelector('#local-upload-list').textContent.includes('云端核对暂未完成'));assert.equal(await page.getByText('下载音频',{exact:true}).count(),1);
+ job.audioCleanupError=null;job.audioRemovedAt=Date.now();await page.waitForFunction(()=>document.querySelector('#local-upload-list').textContent.includes('本机音频已清理'));
+ assert.equal(await page.getByText('下载音频',{exact:true}).count(),0);assert.equal(await page.getByText('文字与笔记',{exact:true}).count(),1);assert.equal(await page.locator('#local-upload-list').getByText('在听悟查看 ↗',{exact:true}).getAttribute('href'),job.url);
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
- assert.deepEqual(errors,[]);console.log('PASS: microphone permission, explicit start/stop, no automatic stop, saved-audio download, upload error, mobile layout, request protection.');
+ assert.deepEqual(errors,[]);console.log('PASS: microphone permission, explicit start/stop, no automatic stop, saved-audio download, upload error, verified cloud storage and local cleanup, notes retained, mobile layout, request protection.');
 }finally{await browser?.close();child.kill();await new Promise(r=>child.once('exit',r));await rm(dir,{recursive:true,force:true});}

@@ -1,11 +1,11 @@
-import {mkdir,readFile,writeFile,rename,readdir} from 'node:fs/promises';
+import {mkdir,readFile,writeFile,rename,readdir,stat} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
 const validId=id=>/^[a-zA-Z0-9-]{1,80}$/.test(id||'');
 async function readJSON(file,fallback){try{return JSON.parse(await readFile(file,'utf8'));}catch(e){if(e.code==='ENOENT')return fallback;throw e;}}
 function alive(pid){if(!Number.isInteger(pid)||pid<=0)return false;try{process.kill(pid,0);return true;}catch{return false;}}
 export function createClassroom({dir,recorder,executable,enabled=true,launch=(args)=>spawn('/usr/bin/nice',['-n','10',executable,...args],{stdio:'ignore'})}){
- const children=new Map(),writes=new Map();let monitoring=false;
+ const children=new Map(),writes=new Map(),cleaningAudio=new Set();let monitoring=false;
  const transcriptFile=id=>path.join(dir,id+'.transcript.json');
  const noteFile=id=>path.join(dir,id+'.notes.json');
  async function record(id){if(!validId(id))throw Error('课堂编号无效');const r=(await recorder.records()).find(x=>x.id===id);if(!r)throw Error('没有找到对应的本地录音');return r;}
@@ -22,11 +22,13 @@ export function createClassroom({dir,recorder,executable,enabled=true,launch=(ar
   });writes.set(id,work);return work;
  }
  async function ensure(r){
-  if(!enabled)return;
+  if(!enabled||r.audioRemovedAt||cleaningAudio.has(r.id))return;
   await mkdir(dir,{recursive:true,mode:0o700});
   const old=await readJSON(transcriptFile(r.id),null);
   if(old?.phase==='complete'||children.has(r.id)||alive(old?.pid))return;
   if(old?.phase==='error'&&Date.now()-old.updatedAt<60000)return;
+  try{await stat(r.file);}catch(e){if(e.code==='ENOENT')return;throw e;}
+  if(cleaningAudio.has(r.id))return;
   const child=launch([r.file,r.file.replace(/\.wav$/,'.json'),transcriptFile(r.id)]);children.set(r.id,child);
   child.once('exit',async code=>{
    children.delete(r.id);
@@ -51,5 +53,14 @@ export function createClassroom({dir,recorder,executable,enabled=true,launch=(ar
   finally{monitoring=false;}
  }
  async function noteIds(){try{return (await readdir(dir)).filter(n=>/^[a-zA-Z0-9-]{1,80}\.notes\.json$/.test(n)).map(n=>n.slice(0,-11));}catch(e){if(e.code==='ENOENT')return [];throw e;}}
- return {get,notes,saveNotes,monitor,noteIds};
+ async function withAudioCleanup(id,work){
+  if(cleaningAudio.has(id))throw Error('正在核对临时音频，请稍候');
+  cleaningAudio.add(id);
+  try{
+   const transcript=await readJSON(transcriptFile(id),null);
+   if(children.has(id)||alive(transcript?.pid))throw Error('正在整理课堂文字，完成后自动清理临时音频');
+   return await work();
+  }finally{cleaningAudio.delete(id);}
+ }
+ return {get,notes,saveNotes,monitor,noteIds,withAudioCleanup};
 }

@@ -5,6 +5,7 @@ import {atomicJSON,readJSON,inspectWav} from './local-recorder.mjs';
 import {requestTingwu} from './tingwu-api.mjs';
 import {stampFromRecord} from './naming.mjs';
 import path from 'node:path';
+import {clearUploadedAudio} from './audio-retention.mjs';
 export function safeUploadDiagnostic(error,ticket){
  let message=String(error?.message||error?.name||'UnknownError');
  for(const value of Object.values(ticket?.sts||{}))if(typeof value==='string'&&value.length>5)message=message.split(value).join('[hidden]');
@@ -20,23 +21,23 @@ export function clientOptions(ticket){
  if(u.protocol!=='https:'||!/^oss-[a-z0-9-]+\.aliyuncs\.com$/.test(u.hostname)||u.port||u.username||u.password||!s?.bucket||!s?.fileKey||!s?.accessKeyId||!s?.accessKeySecret||!s?.securityToken)throw Error('听悟上传凭证无效');
  return {endpoint:u.origin,region:u.hostname.split('.')[0],bucket:s.bucket,accessKeyId:s.accessKeyId,accessKeySecret:s.accessKeySecret,stsToken:s.securityToken,secure:true,timeout:60000};
 }
-export function createLocalUploads({dir,recorder,request=requestTingwu,makeClient=options=>new OSS(options),onUploaded=async()=>{},log=async()=>{},canUpload=()=>true,isSuppressed=()=>false,isDeleted=()=>false,deletionWarning=()=>''}){
+export function createLocalUploads({dir,recorder,request=requestTingwu,makeClient=options=>new OSS(options),onUploaded=async()=>{},log=async()=>{},canUpload=()=>true,isSuppressed=()=>false,isDeleted=()=>false,deletionWarning=()=>'',withAudioCleanup=async(_id,work)=>work(),clearAudio=clearUploadedAudio}){
  const file=path.join(dir,'uploads.json');let jobs={},busy=false,initialized=false,write=Promise.resolve();
  const save=()=>{const snapshot=structuredClone(jobs);write=write.catch(()=>{}).then(()=>atomicJSON(file,snapshot));return write;};
  async function init(){if(!initialized){jobs=await readJSON(file,{});initialized=true;}}
  async function discover(){
   await init();let changed=false;
-  for(const record of await recorder.records())if(['saved','interrupted'].includes(record.status)&&!jobs[record.id]&&!isSuppressed(record.id)){
+  for(const record of await recorder.records())if(['saved','interrupted'].includes(record.status)&&!jobs[record.id]&&!record.audioRemovedAt&&!isSuppressed(record.id)){
    jobs[record.id]={id:record.id,startedAt:record.startedAt,status:'waiting',stage:'pending',progress:0,attempts:0,interrupted:record.status==='interrupted'};changed=true;
   }
   if(changed)await save();
  }
- function publicJob(j){return {deletionWarning:deletionWarning(j.id),id:j.id,startedAt:j.startedAt,status:j.status,progress:j.progress,error:j.error,durationSeconds:j.durationSeconds,interrupted:j.interrupted,transId:j.transId,url:j.transId?`https://tingwu.aliyun.com/doc/transcripts/${j.transId}`:null};}
+ function publicJob(j){return {audioRemovedAt:j.audioRemovedAt||null,audioCleanupError:j.audioCleanupError||null,deletionWarning:deletionWarning(j.id),id:j.id,startedAt:j.startedAt,status:j.status,progress:j.progress,error:j.error,durationSeconds:j.durationSeconds,interrupted:j.interrupted,transId:j.transId,url:j.transId?`https://tingwu.aliyun.com/doc/transcripts/${j.transId}`:null};}
  async function status(){await init();return {busy,jobs:Object.values(jobs).filter(j=>!isDeleted(j.id)).sort((a,b)=>b.startedAt-a.startedAt).slice(0,30).map(publicJob)};}
  async function processOne(job){
   const record=(await recorder.records()).find(r=>r.id===job.id&&['saved','interrupted'].includes(r.status));
   if(!record)throw Error('找不到已保存的本地录音');
-  const wav=await inspectWav(record.file,{repair:record.status==='interrupted'});job.durationSeconds=wav.durationSeconds;
+  const wav=await inspectWav(record.file,{repair:record.status==='interrupted'});job.durationSeconds=wav.durationSeconds;job.fileSize=wav.bytes;
   if(job.durationSeconds>21600)throw Error('本地音频已完整保留，但超过听悟单文件 6 小时范围，请手动分段上传');
   if(job.stage==='creating')throw Error('上次创建上传任务的结果未确认；为避免重复记录，已暂停。请检查听悟列表后重试');
   if(!job.ticket){
@@ -59,8 +60,20 @@ export function createLocalUploads({dir,recorder,request=requestTingwu,makeClien
   if(job.stage==='notify'){
    await request({action:'syncPutLink',version:'1.0',fileLink:job.ticket.getLink,fileSize:wav.bytes,transId:job.transId,duration:Math.floor(wav.durationSeconds)});
    job.stage='done';job.status='uploaded';job.uploadedAt=Date.now();delete job.ticket;delete job.error;await save();
-   await log('本地录音已上传听悟，电脑上的音频继续保留');
+   await log('录音已上传听悟，核对云端音频后自动清理本机临时文件');
    await onUploaded(publicJob(job)).catch(()=>{});
+  }
+ }
+ async function cleanupOne(){
+  const job=Object.values(jobs).find(j=>j.status==='uploaded'&&!j.audioRemovedAt&&!isSuppressed(j.id)&&(!j.audioCleanupNextAt||Date.now()>=j.audioCleanupNextAt));
+  if(!job)return;
+  try{
+   const result=await withAudioCleanup(job.id,()=>clearAudio({dir,job,recorder,request,persistEvidence:async evidence=>{Object.assign(job,evidence);await save();}}));
+   job.audioRemovedAt=result.audioRemovedAt;delete job.audioCleanupError;delete job.audioCleanupNextAt;await save();
+   await log('录音已存入听悟，已清理本机临时音频');
+  }catch(e){
+   job.audioCleanupError=/^(听悟|云端|录音|本机|临时|正在)/.test(e.message||'')?e.message:'云端核对或本机清理尚未完成，临时录音保留';
+   job.audioCleanupNextAt=Date.now()+60000;await save();
   }
  }
  async function tick(){
@@ -68,7 +81,7 @@ export function createLocalUploads({dir,recorder,request=requestTingwu,makeClien
   try{
    await discover();if(!canUpload())return;
    const job=Object.values(jobs).find(j=>!isSuppressed(j.id)&&j.status!=='uploaded'&&j.status!=='attention'&&(!j.nextAttemptAt||Date.now()>=j.nextAttemptAt));
-   if(!job)return;job.status='uploading';job.attempts++;delete job.error;await save();
+   if(!job){await cleanupOne();return;}job.status='uploading';job.attempts++;delete job.error;await save();
    try{await processOne(job);}catch(error){
     // Do not leak signed URLs, tokens, or SDK request objects into status/logs.
     const known=/^(请|听悟|本地|录音|上次|找不到|不是|音频|WAV|远端|Chrome)/.test(error.message||'');

@@ -24,6 +24,9 @@ export function validateRequest(body){
 // Requests run inside the existing signed-in tab. No cookies leave Chrome, and
 // the browser stays on its current page with its current keyboard focus.
 export async function requestTingwu(body){
+ // Completed long recordings can take over 15 seconds to return their transcript.
+ // Extend only this read; writes keep the short timeout and existing recovery rules.
+ const requestTimeout=body.action==='getTransResult'?45000:15000;
  const route=validateRequest(body),tabs=await chromeCall('tabs'),tab=tabs[0];
  if(!tab)throw Error('请保留一个已登录的听悟标签页，后台命名会自动恢复');
  if(body.action==='saveTransDocEdit')for(const t of tabs.filter(t=>new URL(t.url).pathname==='/doc/transcripts/'+body.transId)){
@@ -31,9 +34,9 @@ export async function requestTingwu(body){
   if(editing===true||editing==='true')throw Error('这条听悟笔记正在编辑，已保留本机内容，稍后自动同步');
  }
  const key=randomUUID();
- const script=`(()=>{const tasks=window.__tingwuNamingRequests??=(Object.create(null));const key=${JSON.stringify(key)};tasks[key]={pending:true};const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);fetch(${JSON.stringify(route)},{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:${JSON.stringify(JSON.stringify(body))},signal:controller.signal}).then(async r=>{if(!r.ok)throw Error('听悟请求失败 HTTP '+r.status);return r.json();}).then(data=>tasks[key]={data}).catch(e=>tasks[key]={error:e.message}).finally(()=>clearTimeout(timer));return 'started';})()`;
+ const script=`(()=>{const tasks=window.__tingwuNamingRequests??=(Object.create(null));const key=${JSON.stringify(key)};tasks[key]={pending:true};const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),${requestTimeout});fetch(${JSON.stringify(route)},{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:${JSON.stringify(JSON.stringify(body))},signal:controller.signal}).then(async r=>{if(!r.ok)throw Error('听悟请求失败 HTTP '+r.status);return r.json();}).then(data=>tasks[key]={data}).catch(e=>tasks[key]={error:e.message}).finally(()=>clearTimeout(timer));return 'started';})()`;
  await chromeCall('script',{...tab,script});
- const deadline=Date.now()+20000;
+ const deadline=Date.now()+requestTimeout+5000;
  try{
   while(Date.now()<deadline){
    const raw=await chromeCall('script',{...tab,script:`JSON.stringify(window.__tingwuNamingRequests?.[${JSON.stringify(key)}]||{error:'听悟页面已重新加载，请稍后重试'})`});

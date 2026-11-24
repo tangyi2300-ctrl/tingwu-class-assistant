@@ -53,7 +53,7 @@ export async function createRecordingDeletion({dir,recorder,uploads,list=listSav
    for(const [key,value] of previews)if(value.expiresAt<now())previews.delete(key);
    const target=await resolve(selector),confirmation=randomUUID();
    previews.set(confirmation,{...target,selector,expiresAt:now()+300000});
-   return {confirmation,title:target.title,localId:target.localId,transId:target.transId,message:target.transId?'将从 App 列表移除，并同步移入通义听悟回收站。':'将从 App 列表移除，并取消这条录音的自动上传。',backup:'电脑上已有的原始音频、文字和笔记备份会保留。'};
+   return {confirmation,title:target.title,localId:target.localId,transId:target.transId,message:target.transId?'将从 App 列表移除，并同步移入通义听悟回收站。':'将从 App 列表移除，并取消这条录音的自动上传。',backup:'已清理的音频没有本机备份；未确认上传的临时音频及文字、笔记缓存仍保留。'};
   }finally{busy=false;}
  }
  async function remove({confirmation,confirmed}){
@@ -76,8 +76,8 @@ export async function createRecordingDeletion({dir,recorder,uploads,list=listSav
      if((await list()).some(r=>r.transId===target.transId))throw failure||Error('听悟列表仍有这条录音，暂未确认删除，请稍后重试');
     }
     job.status='deleted';job.deletedAt=now();delete job.error;await save();
-    return {localId:target.localId,transId:target.transId,message:target.transId?'已从 App 移除，并核对听悟列表已移除；本机备份保留':'已从 App 移除，已取消自动上传；本机备份保留'};
-   }catch(e){job.status='pending';job.error='删除未确认：'+e.message+'；本机备份保留，请重新核对';await save();throw Error(job.error);}
+    return {localId:target.localId,transId:target.transId,message:target.transId?'已从 App 移除，并核对听悟列表已移除；未核实的临时文件保留':'已从 App 移除，已取消自动上传；未核实的临时文件保留'};
+   }catch(e){job.status='pending';job.error='删除未确认：'+e.message+'；未核实的临时文件保留，请重新核对';await save();throw Error(job.error);}
   }finally{busy=false;}
  }
  function records(rows){

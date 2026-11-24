@@ -42,7 +42,7 @@ if(localEnabled)await mkdir(localDir,{recursive:true,mode:0o700});
 const recorder=createLocalRecorder({dir:localDir,app:process.env.TINGWU_LOCAL_RECORDER_APP||path.join(root,'native/听课搭子录音.app'),enabled:localEnabled});
 const classroom=createClassroom({dir:path.join(localDir,'Classrooms'),recorder,executable:path.join(root,'native/tingwu-live-transcriber'),enabled:localEnabled});
 let deletions;
-const uploads=createLocalUploads({dir:localDir,recorder,log,isSuppressed:id=>deletions?.suppressed(id),isDeleted:id=>deletions?.deleted(id),deletionWarning:id=>deletions?.warning(id),canUpload:()=>!busy&&!ticking&&!namingBusy&&!library.busy&&!details.busy&&!recordingHasPriority(state.settings,state.completed),onUploaded:async()=>{await library.refresh();}});
+const uploads=createLocalUploads({dir:localDir,recorder,log,withAudioCleanup:classroom.withAudioCleanup,isSuppressed:id=>deletions?.suppressed(id),isDeleted:id=>deletions?.deleted(id),deletionWarning:id=>deletions?.warning(id),canUpload:()=>!busy&&!ticking&&!namingBusy&&!library.busy&&!details.busy&&!recordingHasPriority(state.settings,state.completed),onUploaded:async()=>{await library.refresh();}});
 deletions=await createRecordingDeletion({dir:localDir,recorder,uploads});
 state.library.records=deletions.cachedRecords(state.library.records,state.library.updatedAt);
 const namingAllowed=job=>!deletions.suppressed(null,job.url?.split('/').filter(Boolean).at(-1));
@@ -138,11 +138,12 @@ const server=http.createServer(async(req,res)=>{
  try{
   if(req.headers.host!==`${HOST}:${PORT}`)return respond(res,403,{error:'invalid host'});
   const url=new URL(req.url,origin);
-  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.15.0',local:{...await recorder.status(),uploads:await uploads.status()},runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
+  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.16.0',local:{...await recorder.status(),uploads:await uploads.status()},runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
   if(req.method==='GET' && /^\/api\/local-audio\/[a-zA-Z0-9-]{1,80}$/.test(url.pathname)){
    if(url.searchParams.get('token')!==token)return respond(res,403,{error:'下载权限无效，请刷新页面'});
    const id=url.pathname.split('/').at(-1),record=(await recorder.records()).find(r=>r.id===id&&['saved','interrupted'].includes(r.status));
    if(!record)return respond(res,404,{error:'没有已保存的音频'});
+   if((await uploads.forLocal(id))?.audioRemovedAt)return respond(res,410,{error:'音频已存听悟，本机临时文件已清理，请在听悟回放'});
    const info=await stat(record.file);res.writeHead(200,{'Content-Type':'audio/wav','Content-Length':info.size,'Content-Disposition':`attachment; filename="${id}.wav"`,'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});
    const stream=createReadStream(record.file);stream.on('error',()=>res.destroy());stream.pipe(res);return;
   }
@@ -173,7 +174,7 @@ const server=http.createServer(async(req,res)=>{
     await recorder.stop(body.id);
     for(const run of Object.values(state.sessionRuns||{}))if(run.recordId===body.id){run.manuallyEndedAt=Date.now();run.health={status:'ended',message:'已由你手动结束并保存',checkedAt:Date.now()};}
     await save();await uploads.discover();uploads.tick().catch(e=>log(e.message,'warning'));
-    return respond(res,200,{ok:true,result:{message:'录音已保存在电脑，正在准备上传听悟'}});
+    return respond(res,200,{ok:true,result:{message:'录音已临时保存，正在上传听悟；确认成功后自动清理本机音频'}});
    }
    if(url.pathname==='/api/local-permission')return respond(res,200,{ok:true,result:await recorder.permission()});
    if(url.pathname==='/api/local-retry')return respond(res,200,{ok:true,result:await uploads.retry(body.id)});

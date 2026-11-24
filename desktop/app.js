@@ -64,22 +64,22 @@ setInterval(updateLocalTimer,1000);
 function renderLocalRecorder(){
  const local=state.local;$('#local-recorder').hidden=!local?.enabled;if(!local?.enabled)return;
  const recording=local.recording,ready=local.permission==='authorized'&&!local.stale;
- $('#local-title').textContent=recording?'正在录音 · 已存入电脑':!ready?'需要准备麦克风':'本地录音已就绪';
+ $('#local-title').textContent=recording?'正在录音 · 临时缓存中':!ready?'需要准备麦克风':'本地录音已就绪';
  $('#local-recorder').classList.toggle('is-recording',recording);
- $('#local-description').textContent=local.error|| (recording?'下课点击「结束并上传」。听悟网页异常不会结束这份本地录音。':ready?'按课表自动开始，也可以现在开始。上传后继续保留本地音频。':'点击授权麦克风，在系统提示中选择允许。');
+ $('#local-description').textContent=local.error|| (recording?'下课点击「结束并上传」。录音结束后上传听悟，核验成功后清理临时音频。':ready?'按课表自动开始，也可以现在开始。确认已存入听悟后，自动清理本机音频。':'点击授权麦克风，在系统提示中选择允许。');
  $('#local-permission').hidden=local.permission==='authorized';
  $('#local-start').hidden=recording;$('#local-start').disabled=!ready||state.busy;
  $('#local-stop').hidden=!recording;
  updateLocalTimer();
  const jobs=local.uploads?.jobs||[];$('#local-upload-count').textContent=jobs.length?`· ${jobs.filter(j=>j.status!=='uploaded').length} 条待上传`:'';
  const list=$('#local-upload-list');list.replaceChildren();
- if(!jobs.length){list.append(element('p','hint','结束录音后，这里会显示本地音频和上传结果。'));return;}
+ if(!jobs.length){list.append(element('p','hint','结束录音后，这里会显示上传结果和临时音频清理状态。'));return;}
  for(const job of jobs){
   const row=element('article','local-upload-row'),info=element('div');
   info.append(element('strong','',new Date(job.startedAt).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'})+' · '+localTime(job.durationSeconds)));
-  const labels={waiting:'等待上传',uploading:`正在上传 ${Math.round((job.progress||0)*100)}%`,uploaded:'已上传听悟 · 本地音频保留',retrying:'上传暂未完成 · 将自动重试',attention:'需要检查 · 本地音频保留'};
-  info.append(element('p','hint',(job.interrupted?'录音曾中断，请核对完整性。 ':'')+(job.deletionWarning||job.error||labels[job.status]||'等待上传')));
-  const actions=element('div','local-file-actions'),download=element('a','text-button','下载音频');download.href=`/api/local-audio/${encodeURIComponent(job.id)}?token=${encodeURIComponent(token)}`;download.download='';download.referrerPolicy='no-referrer';actions.append(download);const notes=element('a','text-button','文字与笔记');notes.href='#classroom/'+encodeURIComponent(job.id);if(!job.deletionWarning)actions.prepend(notes);
+  const labels={waiting:'等待上传',uploading:`正在上传 ${Math.round((job.progress||0)*100)}%`,uploaded:job.audioRemovedAt?'已存听悟 · 本机音频已清理':'已上传听悟 · 正在核对并清理临时音频',retrying:'上传暂未完成 · 将自动重试',attention:'需要检查 · 本地音频保留'};
+  info.append(element('p','hint',(job.interrupted?'录音曾中断，请核对完整性。 ':'')+(job.deletionWarning||job.error||job.audioCleanupError||labels[job.status]||'等待上传')));
+  const actions=element('div','local-file-actions'),download=element('a','text-button','下载音频');download.href=`/api/local-audio/${encodeURIComponent(job.id)}?token=${encodeURIComponent(token)}`;download.download='';download.referrerPolicy='no-referrer';if(!job.audioRemovedAt)actions.append(download);const notes=element('a','text-button','文字与笔记');notes.href='#classroom/'+encodeURIComponent(job.id);if(!job.deletionWarning)actions.prepend(notes);
   if(job.url){const link=element('a','text-button','在听悟查看 ↗');link.href=job.url;link.target='_blank';link.rel='noopener noreferrer';actions.append(link);}
   if(!job.deletionWarning&&['retrying','attention'].includes(job.status)){const retry=element('button','secondary','重试上传');retry.onclick=async()=>{retry.disabled=true;try{toast((await api('local-retry',{id:job.id})).message);await refresh();}catch(e){toast(e.message);}finally{retry.disabled=false;}};actions.append(retry);}
   const deletion=deletionUI.button({localId:job.id},info.querySelector('strong').textContent);deletion.disabled=job.status==='uploading';actions.append(deletion);
