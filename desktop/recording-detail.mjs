@@ -1,6 +1,7 @@
 // Read-only projections of Tingwu's transcript, generated summaries and note editor.
 // Source text is data, never executable HTML or instructions for this application.
 import {requestTingwu} from './tingwu-api.mjs';
+import {NOTE_START,NOTE_END,noteText} from './note-document.mjs';
 const clean=v=>typeof v==='string'?v.replace(/\r\n?/g,'\n').trim():'';
 const sentences=text=>clean(text).match(/[^。！？!?\n]+[。！？!?]?/g)?.map(clean).filter(Boolean)||[];
 const cards=data=>Object.values(data?.labCardsMap||{}).flat();
@@ -72,6 +73,23 @@ function noteMatch(note,chapters,context=''){
  // Conservative lexical association. Ambiguous/unrelated notes stay visible separately.
  if(best&&best.count>=2&&best.score>=1.3&&(!second||best.score-second.score>=.35))return {index:best.index,matchedBy:'keywords'};
  return null;
+}
+export function withLocalNotes(detail,local,syncedText){
+ if(!local?.text?.trim()&&syncedText===undefined)return detail;
+ const result=structuredClone(detail),cloud=result.notes.items,start=cloud.findIndex(n=>n.text===NOTE_START),end=cloud.findIndex(n=>n.text===NOTE_END);
+ if(start>=0&&end>start){
+  const normalized=s=>noteText(s).split(/\n+/).map(s=>s.trim()).filter(Boolean).join('\n'),text=normalized(cloud.slice(start+1,end).map(n=>n.text).join('\n'));
+  if([normalized(local.text),syncedText===undefined?undefined:normalized(syncedText)].includes(text)){
+   const ids=new Set(cloud.slice(start,end+1).map(n=>n.id));result.notes.items=cloud.filter(n=>!ids.has(n.id));result.notes.unmatched=result.notes.unmatched.filter(n=>!ids.has(n.id));for(const c of result.chapters)c.notes=c.notes.filter(n=>!ids.has(n.id));
+  }
+ }
+ const items=(local.text||'').split(/\n+/).map(s=>s.trim()).filter(Boolean).map((text,i)=>({id:`local-note-${i}`,text,heading:/^#/.test(text),time:null,source:'local'}));
+ let context='';
+ for(const note of items){if(note.heading)context=note.text;const match=noteMatch(note,result.chapters,context);if(match)result.chapters[match.index].notes.push({...note,matchedBy:match.matchedBy});else result.notes.unmatched.push(note);}
+ result.notes.items.push(...items);result.notes.matched=result.notes.items.length-result.notes.unmatched.length;
+ result.notes.localCount=items.length;result.notes.localUpdatedAt=local.updatedAt;
+ if(result.notes.status==='empty')result.notes.status='ready';
+ return result;
 }
 function transcriptChapters(paragraphs){
  const groups=[];let current=null;

@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {chromeCall} from './chrome-process.mjs';
 import {savedURL} from './naming.mjs';
 
-const routes={getTransList:'/api/trans/request?getTransList',getTransResult:'/api/trans/getTransResult',getTransDocEdit:'/api/doc/getTransDocEdit',getTransTag:'/api/tag/request?getTransTag',getAllLabInfo:'/api/lab/getAllLabInfo',syncTransTag:'/api/tag/request?syncTransTag',generatePutLink:'/api/trans/request?generatePutLink',syncPutLink:'/api/trans/request?syncPutLink'};
+const routes={getTransList:'/api/trans/request?getTransList',getTransResult:'/api/trans/getTransResult',getTransDocEdit:'/api/doc/getTransDocEdit',saveTransDocEdit:'/api/doc/request?saveTransDocEdit',getTransTag:'/api/tag/request?getTransTag',getAllLabInfo:'/api/lab/getAllLabInfo',syncTransTag:'/api/tag/request?syncTransTag',generatePutLink:'/api/trans/request?generatePutLink',syncPutLink:'/api/trans/request?syncPutLink'};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 export function validateRequest(body){
  if(!routes[body.action])throw Error('不支持的听悟操作');
@@ -13,13 +13,21 @@ export function validateRequest(body){
   if(!u||u.protocol!=='https:'||!u.hostname.endsWith('.aliyuncs.com')||!Number.isSafeInteger(body.fileSize)||body.fileSize<=44)throw Error('录音上传确认参数无效');
  }
  if(body.action==='syncTransTag' && (Object.keys(body.tag||{}).join(',')!=='showName' || typeof body.tag.showName!=='string' || body.tag.showName.length>100 || /[\r\n\t]/.test(body.tag.showName)))throw Error('只能更新单条录音的标题');
+ if(body.action==='saveTransDocEdit'){
+  if(typeof body.content!=='string'||body.content.length>2_000_000||!['dingDoc','yuque'].includes(body.tag?.docEditFormat)||typeof body.tag?.hasNote!=='boolean'||Object.keys(body.tag).sort().join(',')!=='docEditFormat,hasNote'||body.baseVer!==undefined&&!(Number.isSafeInteger(body.baseVer)&&body.baseVer>=0))throw Error('笔记保存参数无效');
+  return routes[body.action]+'&transId='+encodeURIComponent(body.transId);
+ }
  return routes[body.action];
 }
 // Requests run inside the existing signed-in tab. No cookies leave Chrome, and
 // the browser stays on its current page with its current keyboard focus.
 export async function requestTingwu(body){
- const route=validateRequest(body),tab=(await chromeCall('tabs'))[0];
+ const route=validateRequest(body),tabs=await chromeCall('tabs'),tab=tabs[0];
  if(!tab)throw Error('请保留一个已登录的听悟标签页，后台命名会自动恢复');
+ if(body.action==='saveTransDocEdit')for(const t of tabs.filter(t=>new URL(t.url).pathname==='/doc/transcripts/'+body.transId)){
+  const editing=await chromeCall('script',{...t,script:"Boolean(document.activeElement&&(document.activeElement.isContentEditable||/^(TEXTAREA|INPUT|IFRAME)$/.test(document.activeElement.tagName)))"});
+  if(editing===true||editing==='true')throw Error('这条听悟笔记正在编辑，已保留本机内容，稍后自动同步');
+ }
  const key=randomUUID();
  const script=`(()=>{const tasks=window.__tingwuNamingRequests??=(Object.create(null));const key=${JSON.stringify(key)};tasks[key]={pending:true};const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);fetch(${JSON.stringify(route)},{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:${JSON.stringify(JSON.stringify(body))},signal:controller.signal}).then(async r=>{if(!r.ok)throw Error('听悟请求失败 HTTP '+r.status);return r.json();}).then(data=>tasks[key]={data}).catch(e=>tasks[key]={error:e.message}).finally(()=>clearTimeout(timer));return 'started';})()`;
  await chromeCall('script',{...tab,script});

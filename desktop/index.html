@@ -5,13 +5,32 @@
 <header class="app-header">
  <a class="brand" href="/"><span class="brand-icon" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>听课搭子<small>记录课堂，轻松回顾</small></span></a>
  <span class="nav-caption">我的课堂</span>
- <nav class="page-nav" aria-label="应用页面"><button id="library-tab" class="nav-button selected" aria-current="page" aria-controls="library-page"><span aria-hidden="true">▤</span>我的录音</button><button id="settings-tab" class="nav-button" aria-controls="settings-page"><span aria-hidden="true">◷</span>课表与设置</button></nav>
+ <nav class="page-nav" aria-label="应用页面"><button id="classroom-tab" class="nav-button" aria-controls="classroom-page"><span aria-hidden="true">◉</span>实时课堂</button><button id="library-tab" class="nav-button selected" aria-current="page" aria-controls="library-page"><span aria-hidden="true">▤</span>我的录音</button><button id="settings-tab" class="nav-button" aria-controls="settings-page"><span aria-hidden="true">◷</span>课表与设置</button></nav>
  <div class="sidebar-bottom"><p>自动记录，安心听课。<br><span>下课请在这里结束并上传。</span></p><span id="app-version" class="review">桌面版 · v0.11</span></div>
 </header>
 <p id="service-alert" class="service-alert" role="alert" hidden>后台连接中断，自动录音状态待确认。正在等待自动恢复，也可以重新打开桌面「听课搭子」。</p>
 <section id="local-recorder" class="local-recorder" aria-labelledby="local-title" hidden>
  <div class="local-top"><div><p class="eyebrow">先存电脑 · 结束后上传听悟</p><h2 id="local-title">本地录音准备中</h2><p id="local-description" class="hint"></p></div><strong id="local-timer" class="local-timer" aria-label="当前录音时长">00:00:00</strong><div class="local-actions"><button id="local-permission" class="primary" hidden>授权麦克风</button><button id="local-start" class="primary">开始录音</button><button id="local-stop" class="stop-recording" hidden>■ 结束并上传</button></div></div>
  <details id="local-files" class="local-files"><summary>本地音频与上传记录 <span id="local-upload-count"></span></summary><div id="local-upload-list"></div></details>
+</section>
+<section id="classroom-page" aria-labelledby="classroom-title" hidden>
+ <div class="classroom-heading"><div><p id="classroom-date" class="eyebrow"></p><h1 id="classroom-title">实时课堂</h1></div><a href="#library" class="text-button">查看历史录音 →</a></div>
+ <div id="classroom-empty" class="library-empty"><strong>现在没有正在录制的课堂</strong><p>点击上方「开始录音」，或等待课表自动开始。<br>历史课堂的文字与笔记，可在「本地音频与上传记录」里打开。</p></div>
+ <div id="classroom-workspace" class="classroom-workspace" hidden>
+  <section class="classroom-panel live-panel" aria-labelledby="live-text-title">
+   <div class="classroom-panel-heading"><div><h2 id="live-text-title">实时文字</h2><p id="transcript-state" role="status">正在连接…</p></div><span class="local-label">本机转写</span></div>
+   <div id="live-transcript-scroll" tabindex="0" role="region" aria-label="实时转写文字"><p id="live-transcript-empty">听到讲话后，文字会显示在这里。</p><div id="live-transcript-list"></div></div>
+   <div class="classroom-panel-foot"><span>文字可能有误，保存后可查看听悟整理。</span><button id="transcript-follow" class="text-button" hidden>↓ 跟随最新</button></div>
+  </section>
+  <section class="classroom-panel notes-panel" aria-labelledby="classroom-notes-title">
+   <div class="classroom-panel-heading"><div><h2 id="classroom-notes-title"><label for="classroom-notes">我的笔记</label></h2><p id="notes-save-state" role="status">正在读取笔记…</p></div><button id="notes-retry" class="text-button" hidden>重试保存</button></div>
+   <textarea id="classroom-notes" spellcheck="false" maxlength="100000" placeholder="在这里记录重点、疑问和自己的想法…&#10;&#10;笔记会自动保存，随这条录音保留。" disabled></textarea>
+   <p id="notes-sync-error" class="notes-save-error" role="status" hidden></p>
+   <p id="notes-save-error" class="notes-save-error" role="alert" hidden></p>
+   <div id="notes-conflict" hidden><p>另一页面已保存的内容：</p><pre id="notes-conflict-saved"></pre><button id="notes-merge" class="secondary">在上方合并后，保存我的输入</button></div>
+   <div class="classroom-panel-foot"><span id="notes-sync-state" role="status">笔记先存本机，录音上传后自动同步听悟</span><button id="notes-sync-retry" class="text-button" hidden>重试同步</button></div>
+  </section>
+ </div>
 </section>
 <section id="library-page" aria-labelledby="library-title">
  <div class="library-heading"><div><p class="eyebrow">课堂资料库</p><h1 id="library-title">我的录音 <span id="recording-count" class="count-label">—</span></h1><p class="library-intro">找到一堂课，回顾它的重点。</p></div>
@@ -28,13 +47,13 @@
  <p class="library-footnote">点击标题或「查看大纲」，回顾思维导图、笔记和原文。</p>
 </section>
 <section id="detail-page" aria-labelledby="detail-title" hidden>
- <div class="detail-topbar"><button id="detail-back" class="text-button">← 返回录音列表</button><div class="detail-actions"><button id="detail-refresh" class="secondary">重新整理 ↻</button><a id="detail-original" class="secondary" target="_blank" rel="noopener noreferrer">在听悟查看 ↗</a></div></div>
+ <div class="detail-topbar"><button id="detail-back" class="text-button">← 返回录音列表</button><div class="detail-actions"><button id="detail-refresh" class="secondary">重新整理 ↻</button><a id="detail-classroom" class="secondary" hidden>编辑课堂笔记</a><a id="detail-original" class="secondary" target="_blank" rel="noopener noreferrer">在听悟查看 ↗</a></div></div>
  <div class="detail-heading"><p id="detail-meta" class="eyebrow"></p><h1 id="detail-title" tabindex="-1">录音内容</h1><p id="detail-health" role="status" aria-live="polite">正在读取完整录音与笔记…</p></div>
  <div id="detail-warnings" role="status" hidden></div>
  <div id="detail-empty" class="library-empty" hidden></div>
  <div id="detail-content" hidden>
   <section class="detail-summary"><div class="summary-caption"><span>这堂课讲了什么</span><span id="detail-note-badge"></span></div><p id="detail-summary-text"></p><p id="detail-source" class="detail-source"></p></section>
-  <div class="outline-toolbar"><div class="detail-tabs" role="tablist" aria-label="录音内容视图"><button id="map-tab" role="tab" aria-selected="true" aria-controls="detail-map" class="selected">思维导图</button><button id="outline-tab" role="tab" aria-selected="false" aria-controls="detail-tree">内容大纲</button><button id="notes-tab" role="tab" aria-selected="false" aria-controls="detail-notes">听悟笔记</button><button id="transcript-tab" role="tab" aria-selected="false" aria-controls="detail-transcript">转写原文</button></div><button id="detail-expand" class="text-button">收起全部</button></div>
+  <div class="outline-toolbar"><div class="detail-tabs" role="tablist" aria-label="录音内容视图"><button id="map-tab" role="tab" aria-selected="true" aria-controls="detail-map" class="selected">思维导图</button><button id="outline-tab" role="tab" aria-selected="false" aria-controls="detail-tree">内容大纲</button><button id="notes-tab" role="tab" aria-selected="false" aria-controls="detail-notes">课堂笔记</button><button id="transcript-tab" role="tab" aria-selected="false" aria-controls="detail-transcript">转写原文</button></div><button id="detail-expand" class="text-button">收起全部</button></div>
   <section id="detail-map" class="lesson-map" role="tabpanel" aria-labelledby="map-tab">
    <div class="mindmap-toolbar"><span class="mindmap-legend"><i></i>章节与要点 <b>✎</b>你的笔记</span><div class="mindmap-zoom-tools"><button id="map-zoom-out" aria-label="缩小导图">−</button><button id="map-zoom-reset" aria-label="恢复百分之百大小">100%</button><button id="map-zoom-in" aria-label="放大导图">＋</button><button id="map-fit-width">适合宽度</button><button id="map-fit-all">查看全图</button></div></div>
    <div id="mindmap-viewport" tabindex="0" role="region" aria-label="课程思维导图，可滚动或拖动查看。方向键平移，加减键缩放。"><div id="mindmap-space"><div id="mindmap-canvas"><svg id="mindmap-lines" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg><div id="mindmap-nodes"></div></div></div></div>

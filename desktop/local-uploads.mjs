@@ -88,5 +88,5 @@ export function createLocalUploads({dir,recorder,request=requestTingwu,makeClien
   if(job.ticket?.sts?.expiration&&Date.parse(job.ticket.sts.expiration)<=Date.now())throw Error('上传凭证已过期，请从本地音频下载文件后在听悟手动上传，避免重复创建记录');
   job.status='waiting';job.nextAttemptAt=0;await save();return {message:'已排队重试，本地音频保留'};
  }
- return {tick,status,discover,retry,get busy(){return busy;}};
+ return {tick,status,discover,retry,forLocal:async id=>{await init();return jobs[id]?publicJob(jobs[id]):null;},localIdFor:async transId=>{await init();return Object.values(jobs).find(j=>j.transId===transId)?.id||null;},get busy(){return busy;}};
 }

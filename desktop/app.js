@@ -1,3 +1,4 @@
+import {createClassroomUI} from './classroom-ui.js';
 const $=s=>document.querySelector(s);
 let token=$('meta[name="tingwu-token"]').content;
 const homeClockFormat=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'numeric',day:'numeric',weekday:'long',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
@@ -20,8 +21,9 @@ const LABELS={morning:'上午课前',noon:'中午下课',afternoon:'下午课前
 function toast(text){$('#toast').textContent=text;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,7000);}
 async function api(name,data={}){
  const r=await fetch('/api/'+name,{method:'POST',headers:{'Content-Type':'application/json','X-Tingwu-Token':token},body:JSON.stringify(data)});
- const result=await r.json();if(!r.ok)throw Error(result.error||'操作失败');return result.result;
+ const result=await r.json();if(!r.ok){const e=Error(result.error||'操作失败');e.status=r.status;throw e;}return result.result;
 }
+const classroomUI=createClassroomUI({api});
 function render(fields=false){
  if(!state)return;
  $('#app-version').textContent=state.preview?'界面预览':`桌面版 · v${state.version||'0.9'}`;
@@ -75,7 +77,7 @@ function renderLocalRecorder(){
   info.append(element('strong','',new Date(job.startedAt).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'})+' · '+localTime(job.durationSeconds)));
   const labels={waiting:'等待上传',uploading:`正在上传 ${Math.round((job.progress||0)*100)}%`,uploaded:'已上传听悟 · 本地音频保留',retrying:'上传暂未完成 · 将自动重试',attention:'需要检查 · 本地音频保留'};
   info.append(element('p','hint',(job.interrupted?'录音曾中断，请核对完整性。 ':'')+(job.error||labels[job.status]||'等待上传')));
-  const actions=element('div','local-file-actions'),download=element('a','text-button','下载音频');download.href=`/api/local-audio/${encodeURIComponent(job.id)}?token=${encodeURIComponent(token)}`;download.download='';download.referrerPolicy='no-referrer';actions.append(download);
+  const actions=element('div','local-file-actions'),download=element('a','text-button','下载音频');download.href=`/api/local-audio/${encodeURIComponent(job.id)}?token=${encodeURIComponent(token)}`;download.download='';download.referrerPolicy='no-referrer';actions.append(download);const notes=element('a','text-button','文字与笔记');notes.href='#classroom/'+encodeURIComponent(job.id);actions.prepend(notes);
   if(job.url){const link=element('a','text-button','在听悟查看 ↗');link.href=job.url;link.target='_blank';link.rel='noopener noreferrer';actions.append(link);}
   if(['retrying','attention'].includes(job.status)){const retry=element('button','secondary','重试上传');retry.onclick=async()=>{retry.disabled=true;try{toast((await api('local-retry',{id:job.id})).message);await refresh();}catch(e){toast(e.message);}finally{retry.disabled=false;}};actions.append(retry);}
   row.append(info,actions);list.append(row);
@@ -166,10 +168,11 @@ function renderLibrary(){
 }
 function showPage(name){
  const isLibrary=name==='library';
- for(const page of ['library','settings','detail'])$('#'+page+'-page').hidden=page!==name;
+ if(name!=='classroom')classroomUI.close();
+ for(const page of ['library','settings','detail','classroom'])$('#'+page+'-page').hidden=page!==name;
  if(name!=='detail'){detailSelected=null;detailGeneration++;clearTimeout(detailTimer);}
- for(const [id,selected] of [['#library-tab',name!=='settings'],['#settings-tab',name==='settings']]){const button=$(id);button.classList.toggle('selected',selected);if(selected)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');}
- document.title=name==='detail'?'听课搭子 · 录音大纲':isLibrary?'听课搭子 · 我的录音':'听课搭子 · 课表与设置';
+ for(const [id,selected] of [['#library-tab',name==='library'||name==='detail'],['#settings-tab',name==='settings'],['#classroom-tab',name==='classroom']]){const button=$(id);button.classList.toggle('selected',selected);if(selected)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');}
+ document.title=name==='classroom'?'听课搭子 · 实时课堂':name==='detail'?'听课搭子 · 录音大纲':isLibrary?'听课搭子 · 我的录音':'听课搭子 · 课表与设置';
  window.scrollTo(0,isLibrary?libraryScroll:0);
 }
 async function requestLibraryRefresh(manual=false){
@@ -240,10 +243,10 @@ function compactMapLabel(text,max=30){
  const clause=value.split(/[，,；;。！？]/)[0];return (clause.length>=10&&clause.length<=max?clause:value.slice(0,max))+'…';
 }
 function buildMindmap(detail,title){
- const noteNode=(note,key,color)=>({key,kind:'note',color,text:note.text,label:compactMapLabel(note.text,32),source:'你的笔记'+(note.matchedBy==='time'?' · 按时间对应':note.matchedBy==='keywords'?' · 按关键词对应':''),children:[]});
+ const noteNode=(note,key,color)=>({key,kind:'note',color,text:note.text,label:compactMapLabel(note.text,32),source:(note.source==='local'?'本机笔记':'听悟笔记')+(note.matchedBy==='time'?' · 按时间对应':note.matchedBy==='keywords'?' · 按关键词对应':''),children:[]});
  const children=detail.chapters.map((chapter,i)=>{
   const key='topic-'+i,color=i%6,points=chapter.points.map((point,j)=>({key:key+'-point-'+j,kind:'point',color,text:point,label:compactMapLabel(point),source:chapter.source==='transcript'?'转写原文摘录':'录音要点',children:[]}));
-  if(chapter.notes.length)points.push({key:key+'-notes',kind:'note-group',color,text:'你的笔记',label:`你的笔记 · ${chapter.notes.length} 段`,source:'听悟笔记区',children:chapter.notes.map(n=>noteNode(n,key+'-'+n.id,color))});
+  if(chapter.notes.length)points.push({key:key+'-notes',kind:'note-group',color,text:'你的笔记',label:`你的笔记 · ${chapter.notes.length} 段`,source:'课堂笔记',children:chapter.notes.map(n=>noteNode(n,key+'-'+n.id,color))});
   return {key,kind:'topic',color,text:chapter.title,label:chapter.title,source:`第 ${i+1} 章`,children:points};
  });
  if(detail.notes.unmatched.length)children.push({key:'supplement',kind:'topic',color:children.length%6,text:'笔记补充',label:'笔记补充',source:'暂未对应具体章节的笔记',children:detail.notes.unmatched.map(n=>noteNode(n,'supplement-'+n.id,children.length%6))});
@@ -353,7 +356,7 @@ function setDetailView(view){
 }
 function noteElement(note,associated=false){
  const item=element('div','outline-note');item.dataset.noteId=note.id;
- item.append(element('span','note-label',associated?'你的笔记 · '+(note.matchedBy==='time'?'按时间对应':'按关键词对应'):'你的笔记'),element('p','',note.text));return item;
+ item.append(element('span','note-label',(note.source==='local'?'本机笔记':'听悟笔记')+(associated?' · '+(note.matchedBy==='time'?'按时间对应':'按关键词对应'):'')),element('p','',note.text));return item;
 }
 function branchElement(chapter,index,extra=false){
  const branch=element('details','map-branch'+(extra?' extra-notes':''));branch.open=true;branch.id=chapter.id;
@@ -365,11 +368,12 @@ function branchElement(chapter,index,extra=false){
  branch.append(content);branch.addEventListener('toggle',()=>{if(detailView==='outline')updateExpandLabel();});return branch;
 }
 function renderDetailData(detail){
- const key=JSON.stringify([detail.transId,detail.updatedAt,detail.title]);if(key===detailRenderKey)return;detailRenderKey=key;detailData=detail;
+ const key=JSON.stringify([detail.transId,detail.updatedAt,detail.title,detail.notes.localUpdatedAt,detail.notes.localCount]);if(key===detailRenderKey)return;detailRenderKey=key;detailData=detail;
  const title=recordingView(detail).title;$('#detail-title').textContent=title;document.title=title+' · 听课搭子';
  $('#detail-content').hidden=false;$('#detail-empty').hidden=true;
  $('#detail-summary-text').textContent=detail.summary||(detail.chapters.length?'听悟暂未生成全文概要，下面已按完整转写分段摘录，可展开查看原文。':'这条录音暂时没有可整理的转写内容，笔记仍可查看。');
  const notes=detail.notes;
+ const editNotes=$('#detail-classroom');editNotes.hidden=!detail.localRecordId;if(detail.localRecordId)editNotes.href='#classroom/'+encodeURIComponent(detail.localRecordId);
  $('#detail-note-badge').textContent=notes.status==='error'?'笔记待同步':notes.items.length?`已结合 ${notes.matched} 段笔记 · 共 ${notes.items.length} 段`:'未记录笔记 · 根据录音整理';
  $('#detail-source').textContent=detail.mode==='tingwu'?'依据听悟全文概要与全部章节整理。笔记按时间或关键词归入章节，未对应的笔记单独保留。':'听悟章节尚未生成，当前为转写分段摘录；全文保留在「转写原文」中。';
  buildMindmap(detail,title);
@@ -378,8 +382,8 @@ function renderDetailData(detail){
  if(notes.unmatched.length)branches.push(branchElement({id:'notes-supplement',title:'笔记补充 · 暂未对应具体章节',notes:notes.unmatched,points:[]},branches.length,true));
  if(!branches.length)branches.push(element('div','library-empty','暂时没有可展示的大纲。听悟生成转写后，可以点「重新整理」。'));
  $('#map-branches').replaceChildren(...branches);
- const noteRows=[element('h2','',`听悟笔记 · ${notes.items.length} 段`)];
- noteRows.push(element('p','detail-source',notes.status==='error'?'笔记区读取失败：'+notes.error:notes.items.length?'保留你在通义听悟笔记区保存的内容与顺序。修改笔记后，点击「重新整理」即可更新。':'这条录音的听悟笔记区没有文字笔记，已根据录音内容整理大纲。'));
+ const noteRows=[element('h2','',`课堂笔记 · ${notes.items.length} 段`)];
+ noteRows.push(element('p','detail-source',notes.status==='error'?'笔记区读取失败：'+notes.error:notes.items.length?'保留听悟笔记与本机课堂笔记，按来源标明；本机笔记可点击上方按钮继续编辑。':'这条录音没有文字笔记，已根据录音内容整理大纲。'));
  for(const note of notes.items)noteRows.push(noteElement(note));$('#detail-notes').replaceChildren(...noteRows);
  const transcriptRows=[element('h2','',`转写原文 · ${detail.paragraphs.length} 段`)];
  if(!detail.paragraphs.length)transcriptRows.push(element('p','detail-source','暂未读到转写原文，可重新整理或在听悟查看。'));
@@ -410,10 +414,12 @@ function openDetail(record){
  showPage('detail');const r=recordingView(record);$('#detail-title').textContent=r.title;$('#detail-title').focus({preventScroll:true});
  $('#detail-meta').textContent=[r.parts&&`${r.parts.year} 年 ${Number(r.parts.month)} 月 ${Number(r.parts.day)} 日 · ${r.parts.hour}:${r.parts.minute}`,r.duration].filter(Boolean).join('　/　');
  const original=$('#detail-original');original.hidden=!r.url;if(r.url)original.href=r.url;else original.removeAttribute('href');
- $('#detail-health').textContent='正在读取整条录音和听悟笔记…';$('#detail-health').classList.remove('warning');$('#detail-warnings').hidden=true;$('#detail-content').hidden=true;$('#detail-empty').hidden=false;$('#detail-empty').textContent='正在准备这堂课的内容地图…';$('#detail-refresh').disabled=true;
+ $('#detail-classroom').hidden=true;$('#detail-health').textContent='正在读取整条录音和听悟笔记…';$('#detail-health').classList.remove('warning');$('#detail-warnings').hidden=true;$('#detail-content').hidden=true;$('#detail-empty').hidden=false;$('#detail-empty').textContent='正在准备这堂课的内容地图…';$('#detail-refresh').disabled=true;
  loadDetail();
 }
 function routeView(){
+ const live=location.hash.match(/^#classroom(?:\/([\w-]+))?$/);
+ if(live){showPage('classroom');classroomUI.open(live[1]||state?.local?.active?.id);return;}
  const match=location.hash.match(/^#recording\/([\w-]+)$/);
  if(match){const record=state?.library?.records.find(r=>r.transId===match[1]);if(record){openDetail(record);return;}toast('录音尚未同步到列表，请刷新后再打开。');}
  showPage(location.hash==='#settings'?'settings':'library');
@@ -435,13 +441,14 @@ on('#toggle',()=>save(!state.settings.enabled));
 on('#open',async()=>{const r=await api('open');toast(r.message);});
 on('#check',async()=>{await api('check');toast('检查已完成');});
 on('#test-start',async()=>{toast((await api('start')).message);});
-on('#local-start',async()=>{toast((await api('start')).message);});
+on('#local-start',async()=>{toast((await api('start')).message);await refresh();location.hash='classroom';routeView();});
 on('#local-stop',async()=>{const id=state.local?.active?.id;if(id)toast((await api('local-stop',{id})).message);});
 on('#local-permission',async()=>{toast((await api('local-permission')).message);});
 on('#test-reminder',async()=>{const r=await api('remind');toast(r.message);});
+$('#classroom-tab').addEventListener('click',()=>{if(location.hash==='#classroom')routeView();else location.hash='classroom';});
 $('#library-tab').addEventListener('click',()=>{location.hash='library';});
 $('#settings-tab').addEventListener('click',()=>{location.hash='settings';});
 $('#recording-search').addEventListener('input',renderLibrary);
 $('#recordings-refresh').addEventListener('click',()=>requestLibraryRefresh(true));
-try{await refresh(true);routeView();if(!state.preview)requestLibraryRefresh();}catch{}
-setInterval(async()=>{try{const first=!state;await refresh();if(first)routeView();if(!state.preview&&!document.hidden&&!$('#library-page').hidden&&!state.runtime?.libraryBusy&&Date.now()-libraryAttemptAt>=10000&&(libraryDeferred||Date.now()-(state.library?.updatedAt||0)>=60000))requestLibraryRefresh();}catch{}},5000);
+try{await refresh(true);if(!location.hash&&state.local?.recording)history.replaceState(null,'','#classroom');routeView();if(!state.preview)requestLibraryRefresh();}catch{}
+setInterval(async()=>{try{const first=!state;await refresh();if(first)routeView();if(location.hash==='#classroom'&&state.local?.recording&&classroomUI.id!==state.local.active.id)routeView();if(!state.preview&&!document.hidden&&!$('#library-page').hidden&&!state.runtime?.libraryBusy&&Date.now()-libraryAttemptAt>=10000&&(libraryDeferred||Date.now()-(state.library?.updatedAt||0)>=60000))requestLibraryRefresh();}catch{}},5000);

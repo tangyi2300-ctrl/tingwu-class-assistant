@@ -15,6 +15,7 @@ if status_file.exists():
  if local.get('recording') and time.time()*1000-local.get('updatedAt',0)<10000:
   raise SystemExit('本地录音正在进行，请先手动结束后安装。')
 subprocess.run([os.sys.executable,str(root/'build-recorder.py')],check=True)
+subprocess.run([os.sys.executable,str(root/'build-transcriber.py')],check=True)
 if not (root/'node_modules/ali-oss').exists():raise SystemExit('请先运行 npm ci 安装依赖。')
 if app.exists():
  info=app/'Contents/Info.plist'
@@ -42,7 +43,7 @@ if not (base/'runtime/node').exists():shutil.copy2(Path(node_source).resolve(),b
 (base/'logs').mkdir(exist_ok=True)
 (base/'data').mkdir(mode=0o700,exist_ok=True)
 contents=app/'Contents';(contents/'MacOS').mkdir(parents=True,exist_ok=True);(contents/'Resources').mkdir(exist_ok=True)
-info={'CFBundleName':'听课搭子','CFBundleDisplayName':'听课搭子','CFBundleIdentifier':'com.tangyi.tingwuclassassistant','CFBundleVersion':'0.12.0','CFBundleShortVersionString':'0.12.0','CFBundleExecutable':'launcher','CFBundlePackageType':'APPL','LSUIElement':True,'CFBundleIconFile':'AppIcon','NSAppleEventsUsageDescription':'在上课前打开通义听悟并点击开始录音。'}
+info={'CFBundleName':'听课搭子','CFBundleDisplayName':'听课搭子','CFBundleIdentifier':'com.tangyi.tingwuclassassistant','CFBundleVersion':'0.14.0','CFBundleShortVersionString':'0.14.0','CFBundleExecutable':'launcher','CFBundlePackageType':'APPL','LSUIElement':True,'CFBundleIconFile':'AppIcon','NSAppleEventsUsageDescription':'在上课前打开通义听悟并点击开始录音。'}
 (contents/'Info.plist').write_bytes(plistlib.dumps(info))
 config={'Label':label,'ProgramArguments':[str(base/'runtime/node'),str(base/'desktop/server.mjs')],'WorkingDirectory':str(base),'RunAtLoad':True,'KeepAlive':True,'ThrottleInterval':30,'ProcessType':'Background','StandardOutPath':str(base/'logs/service.log'),'StandardErrorPath':str(base/'logs/error.log')}
 plist.parent.mkdir(exist_ok=True);plist.write_bytes(plistlib.dumps(config))

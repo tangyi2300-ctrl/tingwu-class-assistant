@@ -28,3 +28,6 @@ preview/自动命名-*.png
 *.m4a
 *.caf
 *.aiff
+
+# Generated on-device speech helper.
+native/tingwu-live-transcriber

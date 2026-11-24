@@ -3,11 +3,13 @@ import {fileURLToPath} from 'node:url';
 import {createReadStream} from 'node:fs';
 import {createLocalRecorder} from './local-recorder.mjs';
 import {createLocalUploads} from './local-uploads.mjs';
+import {createClassroom} from './classroom.mjs';
+import {createNoteSync} from './note-sync.mjs';
 import {spawn} from 'node:child_process';
 import {DEFAULT_NAMING,reconcileSavedRecordings,prepareTitle,canAutoApply,applyTitle,validateCandidate,savedURL} from './naming.mjs';
 import {listSavedRecordings} from './tingwu-api.mjs';
 import {createRecordingLibrary} from './recording-library.mjs';
-import {readRecordingDetail} from './recording-detail.mjs';
+import {readRecordingDetail,withLocalNotes} from './recording-detail.mjs';
 import {createRecordingDetails} from './recording-details-store.mjs';
 import {recordingHasPriority,dailyRuns,keepDisplayAwake,SCHEDULE_POLL_MS} from './scheduler.mjs';
 import {runScheduleCycle} from './schedule-runner.mjs';
@@ -37,6 +39,7 @@ const localEnabled=!preview&&(!process.env.TINGWU_DATA_DIR||!!process.env.TINGWU
 const localDir=path.join(data,'local');
 if(localEnabled)await mkdir(localDir,{recursive:true,mode:0o700});
 const recorder=createLocalRecorder({dir:localDir,app:process.env.TINGWU_LOCAL_RECORDER_APP||path.join(root,'native/听课搭子录音.app'),enabled:localEnabled});
+const classroom=createClassroom({dir:path.join(localDir,'Classrooms'),recorder,executable:path.join(root,'native/tingwu-live-transcriber'),enabled:localEnabled});
 const uploads=createLocalUploads({dir:localDir,recorder,log,canUpload:()=>!busy&&!ticking&&!namingBusy&&!library.busy&&!details.busy&&!recordingHasPriority(state.settings,state.completed),onUploaded:async()=>{await library.refresh();}});
 let namingBusy=false;
 let writeQueue=Promise.resolve();
@@ -44,6 +47,7 @@ function save(){const snapshot=JSON.stringify(state,null,2);writeQueue=writeQueu
 const library=createRecordingLibrary({read:listSavedRecordings,get:()=>state.library,set:value=>state.library=value,save});
 const details=createRecordingDetails({dir:path.join(data,'recording-details'),read:readRecordingDetail,canRead:()=>!busy&&!ticking&&!namingBusy&&!library.busy&&!recordingHasPriority(state.settings,state.completed)});
 async function log(message,level='info'){state.logs=[{time:Date.now(),message,level},...(state.logs||[])].slice(0,80);await save();}
+const noteSync=createNoteSync({dir:localDir,classroom,uploads,canSync:()=>!busy&&!ticking&&!namingBusy&&!library.busy&&!details.busy&&!uploads.busy&&!recordingHasPriority(state.settings,state.completed)});
 const token=randomBytes(32).toString('hex');
 let busy=false,stopping=false,awakeProcess=null,displayProcess=null;
 const runtime={startedAt:Date.now(),lastTickAt:null,tickFinishedAt:null,schedulePollMs:SCHEDULE_POLL_MS};
@@ -121,13 +125,13 @@ async function monitorNaming(){
  }catch(e){state.naming.error=e.message;await save();}
  finally{namingBusy=false;}
 }
-const files={'/':'index.html','/style.css':'style.css','/app.js':'app.js','/icon.png':'../extension/icon.png'};
+const files={'/':'index.html','/style.css':'style.css','/app.js':'app.js','/classroom-ui.js':'classroom-ui.js','/icon.png':'../extension/icon.png'};
 function respond(res,code,body,type='application/json'){res.writeHead(code,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'"});res.end(typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body));}
 const server=http.createServer(async(req,res)=>{
  try{
   if(req.headers.host!==`${HOST}:${PORT}`)return respond(res,403,{error:'invalid host'});
   const url=new URL(req.url,origin);
-  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.12.0',local:{...await recorder.status(),uploads:await uploads.status()},runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
+  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.14.0',local:{...await recorder.status(),uploads:await uploads.status()},runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
   if(req.method==='GET' && /^\/api\/local-audio\/[a-zA-Z0-9-]{1,80}$/.test(url.pathname)){
    if(url.searchParams.get('token')!==token)return respond(res,403,{error:'下载权限无效，请刷新页面'});
    const id=url.pathname.split('/').at(-1),record=(await recorder.records()).find(r=>r.id===id&&['saved','interrupted'].includes(r.status));
@@ -137,9 +141,12 @@ const server=http.createServer(async(req,res)=>{
   }
   if(req.method==='POST' && url.pathname.startsWith('/api/')){
    if(req.headers.origin!==origin || req.headers['x-tingwu-token']!==token || req.headers['content-type']!=='application/json')return respond(res,403,{error:'请求来源无效'});
-   let raw='';for await(const c of req){raw+=c;if(raw.length>4096)return respond(res,413,{error:'请求过大'});}
-   const body=JSON.parse(raw||'{}');let result;
+   const chunks=[];let size=0;for await(const c of req){size+=c.length;if(size>(url.pathname==='/api/classroom-notes'?650000:16384))return respond(res,413,{error:'请求过大'});chunks.push(c);}
+   const body=JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}');let result;
    if(preview)throw Error('这是审查预览，不会修改听悟录音或正式设置');
+   if(url.pathname==='/api/classroom'){const result=await classroom.get(body.id);result.noteSync=await noteSync.status(body.id);return respond(res,200,{ok:true,result});}
+   if(url.pathname==='/api/classroom-notes'){const result=await classroom.saveNotes(body.id,body);result.noteSync=await noteSync.queue(body.id);return respond(res,200,{ok:true,result});}
+   if(url.pathname==='/api/classroom-sync'){await classroom.notes(body.id);return respond(res,200,{ok:true,result:await noteSync.retry(body.id,{merge:body.merge===true})});}
    // Stopping is always available, even while naming/upload/schedule checks run.
    if(url.pathname==='/api/local-stop'){
     await recorder.stop(body.id);
@@ -152,7 +159,9 @@ const server=http.createServer(async(req,res)=>{
    if(url.pathname==='/api/recording-detail'){
     const record=state.library.records.find(r=>r.transId===body.transId);
     if(!record)return respond(res,404,{error:'录音不在已同步的列表中，请先刷新列表'});
-    return respond(res,200,{ok:true,result:await details.get(record,{refresh:body.refresh===true,poll:body.poll===true})});
+    const result=await details.get(record,{refresh:body.refresh===true,poll:body.poll===true}),localId=await uploads.localIdFor(record.transId);
+    if(result.detail&&localId)result.detail={...withLocalNotes(result.detail,await classroom.notes(localId),await noteSync.syncedText(localId)),localRecordId:localId};
+    return respond(res,200,{ok:true,result});
    }
    if(url.pathname==='/api/recordings-refresh'){
     const deferred=busy || ticking || namingBusy || details.busy || recordingHasPriority(state.settings,state.completed);
@@ -211,7 +220,7 @@ const server=http.createServer(async(req,res)=>{
    return respond(res,200,body,type);
   }
   respond(res,404,{error:'not found'});
- }catch(e){respond(res,400,{error:e.message});}
+ }catch(e){respond(res,e.statusCode||400,{error:e.message});}
 });
 server.on('error',e=>{console.error(e);process.exit(1);});
 server.listen(PORT,HOST,()=>console.log('听课搭子已启动：'+origin));
@@ -222,3 +231,6 @@ if(!preview){setTimeout(monitorNaming,1500);setInterval(monitorNaming,15000);}
 // On startup or wake, retry an unconfirmed session only inside its weekday class window.
 
 if(localEnabled){recorder.ensure().catch(e=>log(e.message,'warning'));setTimeout(()=>uploads.tick().catch(()=>{}),4000);setInterval(()=>uploads.tick().catch(()=>{}),10000);}
+if(localEnabled){setTimeout(()=>classroom.monitor().catch(()=>{}),2000);setInterval(()=>classroom.monitor().catch(()=>{}),4000);}
+
+if(localEnabled){setTimeout(()=>noteSync.tick().catch(()=>{}),5000);setInterval(()=>noteSync.tick().catch(()=>{}),10000);}
