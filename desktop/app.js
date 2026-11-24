@@ -1,4 +1,5 @@
 import {createClassroomUI} from './classroom-ui.js';
+import {createDeletionUI} from './deletion-ui.js';
 const $=s=>document.querySelector(s);
 let token=$('meta[name="tingwu-token"]').content;
 const homeClockFormat=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'numeric',day:'numeric',weekday:'long',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
@@ -24,6 +25,7 @@ async function api(name,data={}){
  const result=await r.json();if(!r.ok){const e=Error(result.error||'操作失败');e.status=r.status;throw e;}return result.result;
 }
 const classroomUI=createClassroomUI({api});
+const deletionUI=createDeletionUI({api,onDeleted:async result=>{toast(result.message);if(location.hash===('#recording/'+result.transId)||location.hash===('#classroom/'+result.localId))location.hash='library';await refresh();}});
 function render(fields=false){
  if(!state)return;
  $('#app-version').textContent=state.preview?'界面预览':`桌面版 · v${state.version||'0.9'}`;
@@ -76,10 +78,11 @@ function renderLocalRecorder(){
   const row=element('article','local-upload-row'),info=element('div');
   info.append(element('strong','',new Date(job.startedAt).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'})+' · '+localTime(job.durationSeconds)));
   const labels={waiting:'等待上传',uploading:`正在上传 ${Math.round((job.progress||0)*100)}%`,uploaded:'已上传听悟 · 本地音频保留',retrying:'上传暂未完成 · 将自动重试',attention:'需要检查 · 本地音频保留'};
-  info.append(element('p','hint',(job.interrupted?'录音曾中断，请核对完整性。 ':'')+(job.error||labels[job.status]||'等待上传')));
-  const actions=element('div','local-file-actions'),download=element('a','text-button','下载音频');download.href=`/api/local-audio/${encodeURIComponent(job.id)}?token=${encodeURIComponent(token)}`;download.download='';download.referrerPolicy='no-referrer';actions.append(download);const notes=element('a','text-button','文字与笔记');notes.href='#classroom/'+encodeURIComponent(job.id);actions.prepend(notes);
+  info.append(element('p','hint',(job.interrupted?'录音曾中断，请核对完整性。 ':'')+(job.deletionWarning||job.error||labels[job.status]||'等待上传')));
+  const actions=element('div','local-file-actions'),download=element('a','text-button','下载音频');download.href=`/api/local-audio/${encodeURIComponent(job.id)}?token=${encodeURIComponent(token)}`;download.download='';download.referrerPolicy='no-referrer';actions.append(download);const notes=element('a','text-button','文字与笔记');notes.href='#classroom/'+encodeURIComponent(job.id);if(!job.deletionWarning)actions.prepend(notes);
   if(job.url){const link=element('a','text-button','在听悟查看 ↗');link.href=job.url;link.target='_blank';link.rel='noopener noreferrer';actions.append(link);}
-  if(['retrying','attention'].includes(job.status)){const retry=element('button','secondary','重试上传');retry.onclick=async()=>{retry.disabled=true;try{toast((await api('local-retry',{id:job.id})).message);await refresh();}catch(e){toast(e.message);}finally{retry.disabled=false;}};actions.append(retry);}
+  if(!job.deletionWarning&&['retrying','attention'].includes(job.status)){const retry=element('button','secondary','重试上传');retry.onclick=async()=>{retry.disabled=true;try{toast((await api('local-retry',{id:job.id})).message);await refresh();}catch(e){toast(e.message);}finally{retry.disabled=false;}};actions.append(retry);}
+  const deletion=deletionUI.button({localId:job.id},info.querySelector('strong').textContent);deletion.disabled=job.status==='uploading';actions.append(deletion);
   row.append(info,actions);list.append(row);
  }
 }
@@ -136,7 +139,7 @@ function renderLibrary(){
  else if(libraryDeferred&&Date.now()-library.updatedAt>=60000)health='已显示上次同步的记录，稍后自动更新。';
  $('#library-health').textContent=health;$('#library-health').classList.toggle('warning',!!error);
  const jobs=new Map((state.naming?.jobs||[]).map(j=>[j.url,j]));
- const key=JSON.stringify([visible.map(r=>[r.transId,r.rawTitle,r.sortTime,r.duration,r.url,jobs.get(r.url)?.status]),query,!!library.updatedAt,!!error]);
+ const key=JSON.stringify([visible.map(r=>[r.transId,r.rawTitle,r.sortTime,r.duration,r.url,r.deletionWarning,jobs.get(r.url)?.status]),query,!!library.updatedAt,!!error]);
  if(key===libraryViewKey)return;libraryViewKey=key;
  const list=$('#recording-list'),fragment=document.createDocumentFragment();let groupKey=null,groupList=null;
  for(const record of visible){
@@ -160,7 +163,8 @@ function renderLibrary(){
    const original=element('a','recording-open','听悟回放 ↗');original.href=record.url;original.target='_blank';original.rel='noopener noreferrer';original.setAttribute('aria-label',`在听悟回放：${record.rawTitle}`);meta.append(element('span','meta-separator','·'),original);
    const outline=element('a','recording-outline','查看大纲 →');outline.href='#recording/'+encodeURIComponent(record.transId);outline.setAttribute('aria-label',`查看大纲：${record.title}`);trailing.append(outline);
   }
-  content.append(heading,meta);
+  trailing.append(deletionUI.button({transId:record.transId},record.rawTitle));
+  content.append(heading,meta);if(record.deletionWarning)content.append(element('p','deletion-warning',record.deletionWarning));
   row.append(stamp,content,trailing);groupList.append(row);
  }
  if(!visible.length){const empty=element('div','library-empty');empty.append(element('strong','',query?'没有找到这条录音':error?'暂时还没读到录音':library.updatedAt?'还没有已保存的录音':'正在连接你的听悟'),element('p','',query?'换个标题关键词，或试试录音日期。':error?'请保留一个已登录的听悟标签页，再点击「刷新列表」。':library.updatedAt?'在听悟结束并保存后，录音会出现在这里。':'第一次同步需要一点时间，之后打开就能看到记录。'));fragment.append(empty);}

@@ -3,10 +3,12 @@ import {chromeCall} from './chrome-process.mjs';
 import {savedURL} from './naming.mjs';
 
 const routes={getTransList:'/api/trans/request?getTransList',getTransResult:'/api/trans/getTransResult',getTransDocEdit:'/api/doc/getTransDocEdit',saveTransDocEdit:'/api/doc/request?saveTransDocEdit',getTransTag:'/api/tag/request?getTransTag',getAllLabInfo:'/api/lab/getAllLabInfo',syncTransTag:'/api/tag/request?syncTransTag',generatePutLink:'/api/trans/request?generatePutLink',syncPutLink:'/api/trans/request?syncPutLink'};
+routes.delTrans='/api/trans/request?delTrans';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 export function validateRequest(body){
  if(!routes[body.action])throw Error('不支持的听悟操作');
- if(!['getTransList','generatePutLink'].includes(body.action) && !/^[\w-]{1,80}$/.test(body.transId||''))throw Error('无效录音编号');
+ if(!['getTransList','generatePutLink','delTrans'].includes(body.action) && !/^[\w-]{1,80}$/.test(body.transId||''))throw Error('无效录音编号');
+ if(body.action==='delTrans' && (body.deletePermanently!==false||!Array.isArray(body.transIds)||body.transIds.length!==1||typeof body.transIds[0]!=='string'||!/^[\w-]{1,80}$/.test(body.transIds[0]||'')||Object.keys(body).some(k=>!['action','version','transIds','deletePermanently'].includes(k))))throw Error('只能将单条录音移入听悟回收站');
  if(body.action==='generatePutLink' && (!/^local-[a-f0-9-]{36}$/.test(body.taskId||'') || body.useSts!==1 || body.fileContentType!=='audio/wav' || !Number.isSafeInteger(body.fileSize) || body.fileSize<=44 || body.fileSize>2*1024**3 || body.tag?.fileFormat!=='wav' || body.tag?.fileType!=='local' || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} 记录$/.test(body.tag?.showName||'')))throw Error('本地录音上传参数无效');
  if(body.action==='syncPutLink'){
   let u;try{u=new URL(body.fileLink);}catch{}

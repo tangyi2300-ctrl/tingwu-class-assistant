@@ -3,7 +3,7 @@ import path from 'node:path';
 import {requestTingwu} from './tingwu-api.mjs';
 import {openNoteDocument,prepareNoteUpdate,noteText,conflict} from './note-document.mjs';
 import {parseNotes} from './recording-detail.mjs';
-export function createNoteSync({dir,classroom,uploads,request=requestTingwu,canSync=()=>true,now=Date.now}){
+export function createNoteSync({dir,classroom,uploads,request=requestTingwu,canSync=()=>true,isSuppressed=()=>false,now=Date.now}){
  const file=path.join(dir,'note-sync.json');let jobs={},initializing,busy=false,writes=Promise.resolve();
  const init=()=>initializing??=(async()=>{await mkdir(dir,{recursive:true,mode:0o700});try{jobs=JSON.parse(await readFile(file,'utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}})();
  function persist(){const data=JSON.stringify(jobs);writes=writes.catch(()=>{}).then(async()=>{await writeFile(file+'.tmp',data,{mode:0o600});await rename(file+'.tmp',file);});return writes;}
@@ -14,7 +14,7 @@ export function createNoteSync({dir,classroom,uploads,request=requestTingwu,canS
   return {status,message:messages[status],error:j.error||null,syncedAt:j.syncedAt,syncedRevision:j.syncedRevision,url:j.transId?`https://tingwu.aliyun.com/doc/transcripts/${j.transId}`:null};
  }
  async function queue(id){
-  await init();const local=await classroom.notes(id);let j=jobs[id];
+  await init();if(isSuppressed(id))throw Error('该录音已删除或删除结果待核对，笔记同步已暂停');const local=await classroom.notes(id);let j=jobs[id];
   if(!j&&!noteText(local.text))return view(null,local);
   let changed=false;if(!j){j=jobs[id]={id,status:'waiting',desiredRevision:local.revision,attempts:0};changed=true;}
   if(j.desiredRevision!==local.revision){j.desiredRevision=local.revision;j.nextAttemptAt=now()+1500;j.status=j.transId?'pending':'waiting';j.error=null;j.attempts=0;changed=true;}
@@ -50,9 +50,9 @@ export function createNoteSync({dir,classroom,uploads,request=requestTingwu,canS
  async function tick(){
   if(busy)return;busy=true;
   try{
-   await init();for(const id of await classroom.noteIds())await queue(id);
+   await init();for(const id of await classroom.noteIds())if(!isSuppressed(id))await queue(id);
    if(!canSync())return;
-   const j=Object.values(jobs).find(j=>j.transId&&!['synced','conflict'].includes(j.status)&&(!j.nextAttemptAt||now()>=j.nextAttemptAt));if(!j)return;
+   const j=Object.values(jobs).find(j=>!isSuppressed(j.id)&&j.transId&&!['synced','conflict'].includes(j.status)&&(!j.nextAttemptAt||now()>=j.nextAttemptAt));if(!j)return;
    j.status='syncing';j.error=null;await persist();
    try{await syncOne(j);}catch(e){j.status=e.conflict?'conflict':'retrying';j.attempts++;j.nextAttemptAt=now()+Math.min(300000,15000*2**Math.min(j.attempts-1,4));j.error=e.message;await persist();}
   }finally{busy=false;}

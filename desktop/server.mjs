@@ -5,6 +5,7 @@ import {createLocalRecorder} from './local-recorder.mjs';
 import {createLocalUploads} from './local-uploads.mjs';
 import {createClassroom} from './classroom.mjs';
 import {createNoteSync} from './note-sync.mjs';
+import {createRecordingDeletion} from './recording-deletion.mjs';
 import {spawn} from 'node:child_process';
 import {DEFAULT_NAMING,reconcileSavedRecordings,prepareTitle,canAutoApply,applyTitle,validateCandidate,savedURL} from './naming.mjs';
 import {listSavedRecordings} from './tingwu-api.mjs';
@@ -40,14 +41,19 @@ const localDir=path.join(data,'local');
 if(localEnabled)await mkdir(localDir,{recursive:true,mode:0o700});
 const recorder=createLocalRecorder({dir:localDir,app:process.env.TINGWU_LOCAL_RECORDER_APP||path.join(root,'native/听课搭子录音.app'),enabled:localEnabled});
 const classroom=createClassroom({dir:path.join(localDir,'Classrooms'),recorder,executable:path.join(root,'native/tingwu-live-transcriber'),enabled:localEnabled});
-const uploads=createLocalUploads({dir:localDir,recorder,log,canUpload:()=>!busy&&!ticking&&!namingBusy&&!library.busy&&!details.busy&&!recordingHasPriority(state.settings,state.completed),onUploaded:async()=>{await library.refresh();}});
+let deletions;
+const uploads=createLocalUploads({dir:localDir,recorder,log,isSuppressed:id=>deletions?.suppressed(id),isDeleted:id=>deletions?.deleted(id),deletionWarning:id=>deletions?.warning(id),canUpload:()=>!busy&&!ticking&&!namingBusy&&!library.busy&&!details.busy&&!recordingHasPriority(state.settings,state.completed),onUploaded:async()=>{await library.refresh();}});
+deletions=await createRecordingDeletion({dir:localDir,recorder,uploads});
+state.library.records=deletions.cachedRecords(state.library.records,state.library.updatedAt);
+const namingAllowed=job=>!deletions.suppressed(null,job.url?.split('/').filter(Boolean).at(-1));
+state.naming.jobs=state.naming.jobs.filter(namingAllowed);
 let namingBusy=false;
 let writeQueue=Promise.resolve();
 function save(){const snapshot=JSON.stringify(state,null,2);writeQueue=writeQueue.catch(()=>{}).then(async()=>{await writeFile(stateFile+'.tmp',snapshot,{mode:0o600});await rename(stateFile+'.tmp',stateFile);});return writeQueue;}
-const library=createRecordingLibrary({read:listSavedRecordings,get:()=>state.library,set:value=>state.library=value,save});
+const library=createRecordingLibrary({read:async()=>deletions.records(await listSavedRecordings()),get:()=>state.library,set:value=>state.library=value,save});
 const details=createRecordingDetails({dir:path.join(data,'recording-details'),read:readRecordingDetail,canRead:()=>!busy&&!ticking&&!namingBusy&&!library.busy&&!recordingHasPriority(state.settings,state.completed)});
 async function log(message,level='info'){state.logs=[{time:Date.now(),message,level},...(state.logs||[])].slice(0,80);await save();}
-const noteSync=createNoteSync({dir:localDir,classroom,uploads,canSync:()=>!busy&&!ticking&&!namingBusy&&!library.busy&&!details.busy&&!uploads.busy&&!recordingHasPriority(state.settings,state.completed)});
+const noteSync=createNoteSync({dir:localDir,classroom,uploads,isSuppressed:id=>deletions.suppressed(id),canSync:()=>!busy&&!ticking&&!namingBusy&&!library.busy&&!details.busy&&!uploads.busy&&!recordingHasPriority(state.settings,state.completed)});
 const token=randomBytes(32).toString('hex');
 let busy=false,stopping=false,awakeProcess=null,displayProcess=null;
 const runtime={startedAt:Date.now(),lastTickAt:null,tickFinishedAt:null,schedulePollMs:SCHEDULE_POLL_MS};
@@ -99,6 +105,7 @@ async function storeNamingJob(job){
  state.naming.jobs=[job,...state.naming.jobs.filter(j=>j.id!==job.id)];await save();
 }
 async function commitNamingJob(job){
+ if(!namingAllowed(job))throw Error('该录音已删除或删除结果待核对，已暂停命名');
  const result=await applyTitle(job,{write:writeRecordingTitle,save:storeNamingJob});
  await log(result.status==='renamed'?'录音已自动命名：'+result.candidate:result.reason,result.status==='renamed'?'info':'warning');
  if(result.status==='renamed'){
@@ -114,7 +121,7 @@ async function monitorNaming(){
  try{
   // Defer naming while a live/paused recording page is open.
   const current=await controlStatus();if(current.ongoing || current.path==='/doc/record')return;
-  if(Date.now()-(state.naming.lastScannedAt||0)>=60000)state.naming=reconcileSavedRecordings(state.naming,await library.refresh());
+  if(Date.now()-(state.naming.lastScannedAt||0)>=60000)state.naming=reconcileSavedRecordings(state.naming,(await library.refresh()).filter(r=>!deletions.suppressed(null,r.transId)));
   state.naming.lastCheckedAt=Date.now();delete state.naming.error;await save();
   const pending=state.naming.jobs.filter(j=>j.status==='waiting' && Date.now()-(j.checkedAt||0)>60000).sort((a,b)=>(a.checkedAt||0)-(b.checkedAt||0))[0];
   if(pending){
@@ -125,13 +132,13 @@ async function monitorNaming(){
  }catch(e){state.naming.error=e.message;await save();}
  finally{namingBusy=false;}
 }
-const files={'/':'index.html','/style.css':'style.css','/app.js':'app.js','/classroom-ui.js':'classroom-ui.js','/icon.png':'../extension/icon.png'};
+const files={'/':'index.html','/style.css':'style.css','/app.js':'app.js','/classroom-ui.js':'classroom-ui.js','/deletion-ui.js':'deletion-ui.js','/icon.png':'../extension/icon.png'};
 function respond(res,code,body,type='application/json'){res.writeHead(code,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'"});res.end(typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body));}
 const server=http.createServer(async(req,res)=>{
  try{
   if(req.headers.host!==`${HOST}:${PORT}`)return respond(res,403,{error:'invalid host'});
   const url=new URL(req.url,origin);
-  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.14.0',local:{...await recorder.status(),uploads:await uploads.status()},runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
+  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.15.0',local:{...await recorder.status(),uploads:await uploads.status()},runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
   if(req.method==='GET' && /^\/api\/local-audio\/[a-zA-Z0-9-]{1,80}$/.test(url.pathname)){
    if(url.searchParams.get('token')!==token)return respond(res,403,{error:'下载权限无效，请刷新页面'});
    const id=url.pathname.split('/').at(-1),record=(await recorder.records()).find(r=>r.id===id&&['saved','interrupted'].includes(r.status));
@@ -144,6 +151,20 @@ const server=http.createServer(async(req,res)=>{
    const chunks=[];let size=0;for await(const c of req){size+=c.length;if(size>(url.pathname==='/api/classroom-notes'?650000:16384))return respond(res,413,{error:'请求过大'});chunks.push(c);}
    const body=JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}');let result;
    if(preview)throw Error('这是审查预览，不会修改听悟录音或正式设置');
+   if(['/api/recording-delete-prepare','/api/recording-delete'].includes(url.pathname)){
+    if(busy||ticking||namingBusy||library.busy||details.busy||uploads.busy||noteSync.busy||recordingHasPriority(state.settings,state.completed))throw Error('正在处理课堂任务，请稍后再删除');
+    busy=true;let removed=null;
+    try{
+     const result=url.pathname.endsWith('-prepare')?await deletions.prepare(body):await deletions.remove(body);
+     if(!url.pathname.endsWith('-prepare'))removed=result;
+     return respond(res,200,{ok:true,result});
+    }finally{
+     state.library.records=deletions.records(state.library.records.filter(r=>r.transId!==removed?.transId));
+     state.naming.jobs=state.naming.jobs.filter(namingAllowed);
+     try{await save();}finally{busy=false;}
+    }
+   }
+   if(['/api/classroom','/api/classroom-notes','/api/classroom-sync','/api/local-retry'].includes(url.pathname)&&(deletions.busy||deletions.suppressed(body.id)))throw Error('这条录音已删除或正在核对删除结果，请返回录音列表');
    if(url.pathname==='/api/classroom'){const result=await classroom.get(body.id);result.noteSync=await noteSync.status(body.id);return respond(res,200,{ok:true,result});}
    if(url.pathname==='/api/classroom-notes'){const result=await classroom.saveNotes(body.id,body);result.noteSync=await noteSync.queue(body.id);return respond(res,200,{ok:true,result});}
    if(url.pathname==='/api/classroom-sync'){await classroom.notes(body.id);return respond(res,200,{ok:true,result:await noteSync.retry(body.id,{merge:body.merge===true})});}
@@ -160,7 +181,7 @@ const server=http.createServer(async(req,res)=>{
     const record=state.library.records.find(r=>r.transId===body.transId);
     if(!record)return respond(res,404,{error:'录音不在已同步的列表中，请先刷新列表'});
     const result=await details.get(record,{refresh:body.refresh===true,poll:body.poll===true}),localId=await uploads.localIdFor(record.transId);
-    if(result.detail&&localId)result.detail={...withLocalNotes(result.detail,await classroom.notes(localId),await noteSync.syncedText(localId)),localRecordId:localId};
+    if(result.detail&&localId&&!deletions.suppressed(localId))result.detail={...withLocalNotes(result.detail,await classroom.notes(localId),await noteSync.syncedText(localId)),localRecordId:localId};
     return respond(res,200,{ok:true,result});
    }
    if(url.pathname==='/api/recordings-refresh'){
@@ -178,7 +199,7 @@ const server=http.createServer(async(req,res)=>{
      namingBusy=true;
      try{
       if(!body.id){
-       const records=await library.refresh();state.naming=reconcileSavedRecordings(state.naming,records);await save();
+       const records=await library.refresh();state.naming=reconcileSavedRecordings(state.naming,records.filter(r=>!deletions.suppressed(null,r.transId)));await save();
        result={message:`已核对 ${records.length} 条已保存记录，${state.naming.jobs.filter(j=>j.status==='waiting').length} 条等待命名`};break;
       }
       const job=state.naming.jobs.find(j=>j.id===body.id);

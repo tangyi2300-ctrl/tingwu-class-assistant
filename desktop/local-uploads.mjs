@@ -20,19 +20,19 @@ export function clientOptions(ticket){
  if(u.protocol!=='https:'||!/^oss-[a-z0-9-]+\.aliyuncs\.com$/.test(u.hostname)||u.port||u.username||u.password||!s?.bucket||!s?.fileKey||!s?.accessKeyId||!s?.accessKeySecret||!s?.securityToken)throw Error('听悟上传凭证无效');
  return {endpoint:u.origin,region:u.hostname.split('.')[0],bucket:s.bucket,accessKeyId:s.accessKeyId,accessKeySecret:s.accessKeySecret,stsToken:s.securityToken,secure:true,timeout:60000};
 }
-export function createLocalUploads({dir,recorder,request=requestTingwu,makeClient=options=>new OSS(options),onUploaded=async()=>{},log=async()=>{},canUpload=()=>true}){
+export function createLocalUploads({dir,recorder,request=requestTingwu,makeClient=options=>new OSS(options),onUploaded=async()=>{},log=async()=>{},canUpload=()=>true,isSuppressed=()=>false,isDeleted=()=>false,deletionWarning=()=>''}){
  const file=path.join(dir,'uploads.json');let jobs={},busy=false,initialized=false,write=Promise.resolve();
  const save=()=>{const snapshot=structuredClone(jobs);write=write.catch(()=>{}).then(()=>atomicJSON(file,snapshot));return write;};
  async function init(){if(!initialized){jobs=await readJSON(file,{});initialized=true;}}
  async function discover(){
   await init();let changed=false;
-  for(const record of await recorder.records())if(['saved','interrupted'].includes(record.status)&&!jobs[record.id]){
+  for(const record of await recorder.records())if(['saved','interrupted'].includes(record.status)&&!jobs[record.id]&&!isSuppressed(record.id)){
    jobs[record.id]={id:record.id,startedAt:record.startedAt,status:'waiting',stage:'pending',progress:0,attempts:0,interrupted:record.status==='interrupted'};changed=true;
   }
   if(changed)await save();
  }
- function publicJob(j){return {id:j.id,startedAt:j.startedAt,status:j.status,progress:j.progress,error:j.error,durationSeconds:j.durationSeconds,interrupted:j.interrupted,transId:j.transId,url:j.transId?`https://tingwu.aliyun.com/doc/transcripts/${j.transId}`:null};}
- async function status(){await init();return {busy,jobs:Object.values(jobs).sort((a,b)=>b.startedAt-a.startedAt).slice(0,30).map(publicJob)};}
+ function publicJob(j){return {deletionWarning:deletionWarning(j.id),id:j.id,startedAt:j.startedAt,status:j.status,progress:j.progress,error:j.error,durationSeconds:j.durationSeconds,interrupted:j.interrupted,transId:j.transId,url:j.transId?`https://tingwu.aliyun.com/doc/transcripts/${j.transId}`:null};}
+ async function status(){await init();return {busy,jobs:Object.values(jobs).filter(j=>!isDeleted(j.id)).sort((a,b)=>b.startedAt-a.startedAt).slice(0,30).map(publicJob)};}
  async function processOne(job){
   const record=(await recorder.records()).find(r=>r.id===job.id&&['saved','interrupted'].includes(r.status));
   if(!record)throw Error('找不到已保存的本地录音');
@@ -67,7 +67,7 @@ export function createLocalUploads({dir,recorder,request=requestTingwu,makeClien
   if(busy)return;busy=true;
   try{
    await discover();if(!canUpload())return;
-   const job=Object.values(jobs).find(j=>j.status!=='uploaded'&&j.status!=='attention'&&(!j.nextAttemptAt||Date.now()>=j.nextAttemptAt));
+   const job=Object.values(jobs).find(j=>!isSuppressed(j.id)&&j.status!=='uploaded'&&j.status!=='attention'&&(!j.nextAttemptAt||Date.now()>=j.nextAttemptAt));
    if(!job)return;job.status='uploading';job.attempts++;delete job.error;await save();
    try{await processOne(job);}catch(error){
     // Do not leak signed URLs, tokens, or SDK request objects into status/logs.
@@ -82,11 +82,11 @@ export function createLocalUploads({dir,recorder,request=requestTingwu,makeClien
   }finally{busy=false;}
  }
  async function retry(id){
-  await init();if(busy)throw Error('正在上传，请稍候');const job=jobs[id];if(!job||job.status==='uploaded')throw Error('没有待重试的录音');
+  await init();if(isSuppressed(id))throw Error('该录音已删除或删除结果待核对，不能重新上传');if(busy)throw Error('正在上传，请稍候');const job=jobs[id];if(!job||job.status==='uploaded')throw Error('没有待重试的录音');
   if(job.stage==='creating')job.stage='pending';
   // Expired credentials cannot safely be replaced with a new remote recording.
   if(job.ticket?.sts?.expiration&&Date.parse(job.ticket.sts.expiration)<=Date.now())throw Error('上传凭证已过期，请从本地音频下载文件后在听悟手动上传，避免重复创建记录');
   job.status='waiting';job.nextAttemptAt=0;await save();return {message:'已排队重试，本地音频保留'};
  }
- return {tick,status,discover,retry,forLocal:async id=>{await init();return jobs[id]?publicJob(jobs[id]):null;},localIdFor:async transId=>{await init();return Object.values(jobs).find(j=>j.transId===transId)?.id||null;},get busy(){return busy;}};
+ return {tick,status,discover,retry,deletionTarget:async id=>{await init();const j=jobs[id];return j?{status:j.status,stage:j.stage,transId:j.transId}:null;},forLocal:async id=>{await init();return jobs[id]?publicJob(jobs[id]):null;},localIdFor:async transId=>{await init();return Object.values(jobs).find(j=>j.transId===transId)?.id||null;},get busy(){return busy;}};
 }
