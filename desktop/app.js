@@ -386,9 +386,18 @@ function renderDetailData(detail){
  if(notes.unmatched.length)branches.push(branchElement({id:'notes-supplement',title:'笔记补充 · 暂未对应具体章节',notes:notes.unmatched,points:[]},branches.length,true));
  if(!branches.length)branches.push(element('div','library-empty','暂时没有可展示的大纲。听悟生成转写后，可以点「重新整理」。'));
  $('#map-branches').replaceChildren(...branches);
- const noteRows=[element('h2','',`课堂笔记 · ${notes.items.length} 段`)];
- noteRows.push(element('p','detail-source',notes.status==='error'?'笔记区读取失败：'+notes.error:notes.items.length?'保留听悟笔记与本机课堂笔记，按来源标明；本机笔记可点击上方按钮继续编辑。':'这条录音没有文字笔记，已根据录音内容整理大纲。'));
- for(const note of notes.items)noteRows.push(noteElement(note));$('#detail-notes').replaceChildren(...noteRows);
+ const noteRows=[element('h2','','课堂笔记')];
+ const appOriginal=notes.localOriginalText||'';
+ const cloudOriginal=notes.originalText??notes.items.filter(note=>note.source!=='local').map(note=>note.text).join('\n');
+ for(const [label,original] of [['你在 App 写的原文',appOriginal],['你在听悟写的笔记',cloudOriginal]]){
+  if(!original.trim())continue;
+  const block=element('div','outline-note');
+  block.append(element('span','note-label',label),element('p','note-original',original));
+  noteRows.push(block);
+ }
+ if(notes.status==='error')noteRows.push(element('p','detail-source','暂未读到听悟笔记：'+notes.error));
+ else if(noteRows.length===1)noteRows.push(element('p','detail-source','这条录音还没有课堂笔记。'));
+ $('#detail-notes').replaceChildren(...noteRows);
  const transcriptRows=[element('h2','',`转写原文 · ${detail.paragraphs.length} 段`)];
  if(!detail.paragraphs.length)transcriptRows.push(element('p','detail-source','暂未读到转写原文，可重新整理或在听悟查看。'));
  for(const p of detail.paragraphs){const row=element('div','transcript-row');row.append(element('span','transcript-time',timeLabel(p.start)||'—'),element('p','',p.text));transcriptRows.push(row);}$('#detail-transcript').replaceChildren(...transcriptRows);

@@ -57,9 +57,14 @@ test('manual cloud changes stay intact until the user merges them into local not
  f.local={...f.local,revision:3,text:'听悟改过的内容\n本机的新改动'};await c.queue('lesson');f.advance();await c.tick();assert.equal((await c.status('lesson')).status,'conflict');assert.equal(f.saves,1);await c.retry('lesson',{merge:true});await c.tick();assert.equal((await c.status('lesson')).status,'synced');assert.equal(f.saves,2);assert.equal(openNoteDocument(f.content).text,'听悟改过的内容\n本机的新改动');
 });
 test('outline displays synced local notes once, while retaining unrelated cloud notes',()=>{
- const content=prepareNoteUpdate(root(p('原有听悟笔记')),'本机内容').content;
+ const original='\n  本机内容  \n\n下一段\n',synced=prepareNoteUpdate(root(p('原有听悟笔记'),p('')),original);
+ const content=synced.content;
  const detail=buildRecordingDetail({transId:'cloud-1'},{lab:{},transcript:{result:'{"pg":[]}'},notes:{content}});
- const combined=withLocalNotes(detail,{text:'本机内容',updatedAt:2},'本机内容');assert.deepEqual(combined.notes.items.map(n=>n.text),['原有听悟笔记','本机内容']);assert.equal(detail.notes.items.length,4);
+ const combined=withLocalNotes(detail,{text:original,updatedAt:2},synced.text);
+ assert.deepEqual(combined.notes.items.map(n=>n.text),['原有听悟笔记','  本机内容  ','下一段']);
+ assert.equal(combined.notes.originalText,'原有听悟笔记\n');
+ assert.equal(combined.notes.localOriginalText,original);
+ assert.equal(detail.notes.items.length,5);
 });
 test('write endpoint rejects malformed ids, formats and unrelated tag mutations',()=>{
  const valid={action:'saveTransDocEdit',version:'1.0',transId:'class-1',content:root(p('笔记')),tag:{docEditFormat:'dingDoc',hasNote:true}};assert.match(validateRequest(valid),/saveTransDocEdit&transId=class-1$/);

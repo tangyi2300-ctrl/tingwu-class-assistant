@@ -24,7 +24,8 @@ export function createRecordingDetails({dir,read,canRead=()=>true,now=Date.now})
   get busy(){return !!active;},
   async get(record,{refresh=false,poll=false}={}){
    const e=await entry(record.transId);
-   if(!e.pending&&(e.status==='deferred'||(!poll&&(refresh||!e.detail||now()-e.detail.updatedAt>=60000))))await start(record,e);
+   const outdatedNotes=e.detail?.notes?.status==='ready'&&typeof e.detail.notes.originalText!=='string';
+   if(!e.pending&&(e.status==='deferred'||(!poll&&(refresh||!e.detail||outdatedNotes||now()-e.detail.updatedAt>=60000))))await start(record,e);
    return {status:e.status,error:e.error,detail:e.detail?{...e.detail,title:record.title}:null};
   }
  };

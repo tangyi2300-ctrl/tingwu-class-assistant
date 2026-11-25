@@ -2,6 +2,7 @@
 // Source text is data, never executable HTML or instructions for this application.
 import {requestTingwu} from './tingwu-api.mjs';
 import {NOTE_START,NOTE_END,noteText} from './note-document.mjs';
+import {parseFragment} from 'parse5';
 const clean=v=>typeof v==='string'?v.replace(/\r\n?/g,'\n').trim():'';
 const sentences=text=>clean(text).match(/[^。！？!?\n]+[。！？!?]?/g)?.map(clean).filter(Boolean)||[];
 const cards=data=>Object.values(data?.labCardsMap||{}).flat();
@@ -17,14 +18,17 @@ export function parseTranscript(data){
   return {id:String(p.pi??i),text:words.map(w=>typeof w.tc==='string'?w.tc:'').join('').trim(),start:starts.length?Math.min(...starts)/1000:null,end:ends.length?Math.max(...ends)/1000:null};
  }).filter(p=>p.text);
 }
-function decodeEntities(s){return s.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi,(m,n)=>{const map={amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' '};if(map[n])return map[n];try{return String.fromCodePoint(parseInt(n.slice(n[1].toLowerCase()==='x'?2:1),n[1].toLowerCase()==='x'?16:10));}catch{return m;}});}
+const noteBlock=/^(p|h[1-6]|li|blockquote|pre|tr)$/;
+const lakeContainer=/^(div|section|ul|ol|table|tbody|thead)$/;
+const attachmentText='〔图片或附件笔记，请在听悟查看〕';
 export function parseNotes(data){
  if(!data||!Object.hasOwn(data,'content'))throw Error('未读到听悟笔记区，请稍后重试');
  const content=data.content;
- if(content===null||content==='')return {status:'empty',items:[],attachments:0};
+ if(content===null||content==='')return {status:'empty',items:[],attachments:0,originalText:''};
  if(typeof content!=='string'||content.length>2_000_000)throw Error('笔记格式或长度暂不支持，请在听悟查看');
+ const original=[];
  let blocks=[],attachments=0;
- const add=(text,heading=false,time=null)=>{text=clean(text);if(text)blocks.push({text,heading,time});};
+ const add=(text,heading=false,time=null)=>{original.push(text);if(text.trim())blocks.push({text,heading,time});};
  if(content.trimStart().startsWith('[')){
   let tree;try{tree=JSON.parse(content);}catch{throw Error('听悟笔记数据不完整，请重新同步');}
   if(!Array.isArray(tree)||tree[0]!=='root')throw Error('听悟笔记格式已变化');
@@ -33,31 +37,52 @@ export function parseNotes(data){
    if(!Array.isArray(node))return '';
    const [tag,attrs,...children]=node;
    if(/^(script|style)$/i.test(tag))return '';
-   if(tag==='img'||/image|attachment|video|audio/i.test([attrs?.['data-type'],attrs?.['data-inline-type'],attrs?.['data-card-type'],attrs?.name].filter(Boolean).join(' '))){attachments++;return '〔图片或附件笔记，请在听悟查看〕';}
+   if(tag==='img'||/image|attachment|video|audio/i.test([attrs?.['data-type'],attrs?.['data-inline-type'],attrs?.['data-card-type'],attrs?.name].filter(Boolean).join(' '))){attachments++;return attachmentText;}
    if(tag==='br')return '\n';
    return children.map(textOf).join('');
   }
   function visit(node){
    if(!Array.isArray(node))return;
    const [tag,attrs,...children]=node;
-   if(/^(p|h[1-6]|li|blockquote|pre|tr)$/.test(tag)){
-    const time=number(attrs?.['data-time']);add(textOf(node),/^h[1-6]$/.test(tag),time);return;
+   if(noteBlock.test(tag)){
+    const time=number(attrs?.['data-time']),text=textOf(node);
+    add(text==='\n'?'':text,/^h[1-6]$/.test(tag),time);return;
    }
    if(tag==='img'||tag==='card'){add(textOf(node));return;}
    for(const child of children)visit(child);
   }
   visit(tree);
   // Some editor versions put inline text directly under root.
-  if(!blocks.length){const text=tree.slice(2).map(textOf).join('');add(text);}
+  if(!original.length)add(tree.slice(2).map(textOf).join(''));
  }else if(/^\s*(<!doctype lake>|<)/i.test(content)){
-  attachments=(content.match(/<(?:img|video|audio)\b|<card\b[^>]*name=["'](?:image|file)/gi)||[]).length;
-  const plain=content.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi,'').replace(/<(?:img|video|audio)\b[^>]*>/gi,'〔图片或附件笔记，请在听悟查看〕').replace(/<(?:br|\/p|\/div|\/h[1-6]|\/li|\/tr)\b[^>]*>/gi,'\n').replace(/<[^>]*>/g,'');
-  decodeEntities(plain).split('\n').forEach(line=>add(line));
-  if(attachments&&!blocks.length)add('〔图片或附件笔记，请在听悟查看〕');
-  if(!blocks.length&&content.replace(/<[^>]*>/g,'').trim())throw Error('笔记内容暂时无法完整解析');
- }else{content.split('\n').forEach(line=>add(line));}
+  const root=parseFragment(content);
+  const children=node=>node.childNodes||[];
+  const isAttachment=node=>/^(img|video|audio)$/.test(node.tagName)||node.tagName==='card'&&node.attrs.some(a=>a.name==='name'&&/^(image|file)/i.test(a.value));
+  function textOf(node){
+   if(node.nodeName==='#text')return node.value;
+   if(/^(script|style)$/.test(node.tagName))return '';
+   if(isAttachment(node)){attachments++;return attachmentText;}
+   if(node.tagName==='br')return '\n';
+   return children(node).map(textOf).join('');
+  }
+  let inline='';
+  function flush(){if(inline.trim())add(inline);inline='';}
+  function visit(node){
+   const tag=node.tagName;
+   const inlineBlock=/^(div|section)$/.test(tag)&&!children(node).some(child=>noteBlock.test(child.tagName)||lakeContainer.test(child.tagName));
+   if(noteBlock.test(tag)||inlineBlock||isAttachment(node)){
+    flush();
+    const text=textOf(node);add(text==='\n'?'':text,/^h[1-6]$/.test(tag));return;
+   }
+   if(lakeContainer.test(tag)){
+    flush();children(node).forEach(visit);flush();return;
+   }
+   inline+=textOf(node);
+  }
+  children(root).forEach(visit);flush();
+ }else{content.split(/\r\n?|\n/).forEach(line=>add(line));}
  blocks=blocks.map((b,i)=>({...b,id:`note-${i+1}`}));
- return {status:blocks.length||attachments?'ready':'empty',items:blocks,attachments};
+ return {status:blocks.length||attachments?'ready':'empty',items:blocks,attachments,originalText:original.join('\n')};
 }
 const segmenter=new Intl.Segmenter('zh-CN',{granularity:'word'});
 const stop=new Set('这个 那个 一个 我们 你们 他们 可以 需要 就是 然后 以及 进行 通过 如何 关于 相关 内容 讨论 对话 强调 提及 同时 重要 使用 还有 什么 这里 自己 时候'.split(' '));
@@ -76,19 +101,27 @@ function noteMatch(note,chapters,context=''){
 }
 export function withLocalNotes(detail,local,syncedText){
  if(!local?.text?.trim()&&syncedText===undefined)return detail;
- const result=structuredClone(detail),cloud=result.notes.items,start=cloud.findIndex(n=>n.text===NOTE_START),end=cloud.findIndex(n=>n.text===NOTE_END);
+ const result=structuredClone(detail),cloud=result.notes.items,start=cloud.findIndex(n=>n.text.trim()===NOTE_START),end=cloud.findIndex(n=>n.text.trim()===NOTE_END);
  if(start>=0&&end>start){
   const normalized=s=>noteText(s).split(/\n+/).map(s=>s.trim()).filter(Boolean).join('\n'),text=normalized(cloud.slice(start+1,end).map(n=>n.text).join('\n'));
   if([normalized(local.text),syncedText===undefined?undefined:normalized(syncedText)].includes(text)){
    const ids=new Set(cloud.slice(start,end+1).map(n=>n.id));result.notes.items=cloud.filter(n=>!ids.has(n.id));result.notes.unmatched=result.notes.unmatched.filter(n=>!ids.has(n.id));for(const c of result.chapters)c.notes=c.notes.filter(n=>!ids.has(n.id));
+   if(typeof result.notes.originalText==='string'){
+    const lines=result.notes.originalText.split('\n');
+    const first=lines.findIndex(line=>line.trim()===NOTE_START),last=lines.findIndex(line=>line.trim()===NOTE_END);
+    if(first>=0&&last>first&&normalized(lines.slice(first+1,last).join('\n'))===text){
+     lines.splice(first,last-first+1);result.notes.originalText=lines.join('\n');
+    }
+   }
   }
  }
- const items=(local.text||'').split(/\n+/).map(s=>s.trim()).filter(Boolean).map((text,i)=>({id:`local-note-${i}`,text,heading:/^#/.test(text),time:null,source:'local'}));
+ const items=(local.text||'').split(/\r\n?|\n/).filter(s=>s.trim()).map((text,i)=>({id:`local-note-${i}`,text,heading:/^\s*#/.test(text),time:null,source:'local'}));
  let context='';
  for(const note of items){if(note.heading)context=note.text;const match=noteMatch(note,result.chapters,context);if(match)result.chapters[match.index].notes.push({...note,matchedBy:match.matchedBy});else result.notes.unmatched.push(note);}
  result.notes.items.push(...items);result.notes.matched=result.notes.items.length-result.notes.unmatched.length;
  result.notes.localCount=items.length;result.notes.localUpdatedAt=local.updatedAt;
- if(result.notes.status==='empty')result.notes.status='ready';
+ result.notes.localOriginalText=local.text;
+ if(result.notes.status!=='error')result.notes.status=result.notes.items.length?'ready':'empty';
  return result;
 }
 function transcriptChapters(paragraphs){

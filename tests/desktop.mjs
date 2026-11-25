@@ -1,4 +1,5 @@
 import {detailFixture} from './detail-fixture.mjs';
+import {withLocalNotes} from '../desktop/recording-detail.mjs';
 import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
@@ -42,11 +43,13 @@ try {
  assert.ok(await page.locator('.recording-title').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize))>=22);
  await page.screenshot({path:path.join(root,'preview/录音列表首页.png'),fullPage:false});
  // In-app detail navigation, notes, all views, errors and stale-response protection.
- let detailFailure=false,slowFirst=false;
+ let detailFailure=false,slowFirst=false,includeAppOriginal=false;
+ const originalNotes='\n  第一段，我自己的话。  \n\n第二段 <b>也是原文</b>\n';
  await page.route('**/api/recording-detail',async route=>{
   const body=route.request().postDataJSON(),record=recordings.find(r=>r.transId===body.transId);
   if(slowFirst&&record.transId==='demo-0')await new Promise(r=>setTimeout(r,550));
-  const detail=detailFixture(record,{withNotes:record.transId==='demo-0'});
+  let detail=detailFixture(record,{withNotes:record.transId==='demo-0'});
+  if(includeAppOriginal&&record.transId==='demo-0')detail=withLocalNotes(detail,{text:originalNotes,updatedAt:1});
   await route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:{status:detailFailure?'error':'ready',error:detailFailure?'网络暂时中断':null,detail}})});
  });
  await page.locator('.recording-outline').first().click();await page.locator('.mind-root').waitFor();
@@ -70,7 +73,17 @@ try {
  await page.locator('#map-fit-all').click();await page.locator('#detail-map').screenshot({path:path.join(root,'preview/录音思维导图.png')});
  await page.locator('#outline-tab').click();assert.equal(await page.locator('#detail-map').isVisible(),false);assert.equal(await page.locator('.map-branch[open]').count(),5);
 
- await page.locator('#notes-tab').click();assert.equal(await page.locator('#detail-notes .outline-note').count(),3);
+ await page.locator('#notes-tab').click();
+ const originals=page.locator('#detail-notes .note-original');
+ const cloudNotes=detailFixture(recordings[0]).notes.originalText;
+ assert.deepEqual(await originals.allTextContents(),[cloudNotes]);
+ includeAppOriginal=true;await page.locator('#detail-refresh').click();
+ await page.waitForFunction(()=>document.querySelectorAll('#detail-notes .note-original').length===2);
+ assert.deepEqual(await originals.allTextContents(),[originalNotes,cloudNotes]);
+ assert.equal(await originals.first().locator('b').count(),0);
+ assert.equal(await originals.first().evaluate(e=>getComputedStyle(e).whiteSpace),'pre-wrap');
+ includeAppOriginal=false;await page.locator('#detail-refresh').click();
+ await page.waitForFunction(()=>document.querySelectorAll('#detail-notes .note-original').length===1);
  await page.locator('#transcript-tab').click();assert.equal(await page.locator('.transcript-row').count(),2);
  await page.locator('#map-tab').click();await page.setViewportSize({width:390,height:844});await page.waitForTimeout(200);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);

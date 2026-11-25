@@ -12,7 +12,8 @@ const card=(key,contentValues)=>({key,status:0,contents:[{contentValues}]});
 const lab={labCardsMap:{summary:[card('fullSummary',[{value:'课程讲解镜头语言与声音设计。'}]),card('agendaSummary',[{title:'镜头语言与构图',value:'景别和构图影响人物情绪。调整镜头距离传递信息。'},{title:'声音设计与混音',value:'背景音乐与音效共同塑造节奏。人声与配乐保持平衡。'}])]}};
 const notes=(...texts)=>({content:JSON.stringify(['root',{},...texts.map(t=>['p',{},['span',{'data-type':'text'},['span',{'data-type':'leaf'},t]]])])});
 test('actual DingDoc note structure preserves every paragraph, formatting and safe text',()=>{
- const d=parseNotes(notes('构图先找主体。','<script>alert(1)</script>','', '第二段'));assert.deepEqual(d.items.map(x=>x.text),['构图先找主体。','<script>alert(1)</script>','第二段']);assert.equal(d.status,'ready');
+ const d=parseNotes(notes('构图先找主体。  ','<script>alert(1)</script>','', '　第二段'));assert.deepEqual(d.items.map(x=>x.text),['构图先找主体。  ','<script>alert(1)</script>','　第二段']);assert.equal(d.status,'ready');
+ assert.equal(d.originalText,'构图先找主体。  \n<script>alert(1)</script>\n\n　第二段');
 });
 test('missing and malformed notes are distinct from an empty note area',()=>{
  assert.equal(parseNotes({content:null}).status,'empty');assert.equal(parseNotes(notes('')).status,'empty');
@@ -20,8 +21,9 @@ test('missing and malformed notes are distinct from an empty note area',()=>{
  const d=buildRecordingDetail(record,{lab,transcript,notes:{}});assert.equal(d.notes.status,'error');assert.match(d.warnings.join(''),/尚未结合/);
 });
 test('Lake notes decode text safely and mark image notes without claiming recognition',()=>{
- const d=parseNotes({content:'<!doctype lake><p>构图 &amp; 光线</p><p>&lt;安全文本&gt;</p><img src="https://example.invalid/a.jpg">'});
+ const d=parseNotes({content:'<!doctype lake><p><b>构图</b> &amp; 光线</p><p><br></p><p>&lt;安全文本&gt;<br>  笔记</p><img src="https://example.invalid/a.jpg">'});
  assert.equal(d.attachments,1);assert.match(d.items.map(x=>x.text).join(''),/构图 & 光线/);assert.match(d.items.at(-1).text,/在听悟查看/);
+ assert.equal(d.originalText,'构图 & 光线\n\n<安全文本>\n  笔记\n〔图片或附件笔记，请在听悟查看〕');
 });
 test('transcript preserves English spaces, all paragraphs and millisecond timestamps',()=>{
  const d=parseTranscript({result:JSON.stringify({pg:[{pi:'x',sc:[{tc:'Hello ',bt:1000,et:1100},{tc:'world.',bt:1100,et:2500}]}]})});
