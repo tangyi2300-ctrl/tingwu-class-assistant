@@ -54,7 +54,13 @@ export async function runScheduleCycle({state,now=()=>new Date(),save,start,pref
  }
  for(const e of runnableEvents(state.settings,state.completed,state.attempts,now())){
   if(cancelled())return;
-  if(!START_KINDS.includes(e.kind)){await remind();state.completed[e.id]=now().getTime();await save();continue;}
+  if(!START_KINDS.includes(e.kind)){
+   if(now().getTime()-(state.attempts[e.id]||0)<30000)continue;
+   state.attempts[e.id]=now().getTime();await save();
+   try{await remind();state.completed[e.id]=now().getTime();await save();}
+   catch(error){await log('下课提醒未能启动，将稍后重试：'+error.message,'warning');}
+   continue;
+  }
   await earlyWarning(e,'距离上课不足两分钟，仍未确认录音开始。程序正在继续重试，请检查听课搭子的麦克风授权。');
   const old=state.sessionRuns[e.id]||{};
   const run=state.sessionRuns[e.id]={...old,kind:e.kind,date:e.date,plannedAt:e.plannedAt,status:'starting',attemptCount:(old.attemptCount||0)+1,lastAttemptAt:now().getTime()};

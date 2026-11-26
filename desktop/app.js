@@ -57,6 +57,8 @@ function render(fields=false){
 function localTime(seconds){const n=Math.max(0,Math.floor(seconds||0));return [Math.floor(n/3600),Math.floor(n%3600/60),n%60].map(x=>String(x).padStart(2,'0')).join(':');}
 function updateLocalTimer(){
  const local=state?.local;if(!local?.enabled)return;
+ $('#local-timer').hidden=!local.recording;
+ if(!local.recording)return;
  const delay=Date.now()-(local.updatedAt||0),elapsed=local.active?.durationSeconds||0;
  $('#local-timer').textContent=localTime(elapsed+(local.recording&&delay<6000?Math.max(0,delay/1000):0));
 }

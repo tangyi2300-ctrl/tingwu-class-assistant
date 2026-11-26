@@ -12,6 +12,13 @@ function harness(time='09:55:00'){
  remind:async()=>{h.reminders++;},notice:async(m,u)=>h.notices.push({m,u}),log:async(m,l)=>h.logs.push({m,l}),cycle:()=>runScheduleCycle(h)};
  return h;
 }
+test('failed reminder launch retries without marking it complete or starting a recording',async()=>{
+ const h=harness('12:15:00');h.state.settings.noon='12:15';h.state.completed={'2026-11-16:morning':1};
+ let attempts=0;h.remind=async()=>{attempts++;if(attempts===1)throw Error('提醒程序未启动');};
+ await h.cycle();assert.equal(attempts,1);assert.equal(h.state.completed['2026-11-16:noon'],undefined);assert.equal(h.starts,0);
+ h.advance('12:15:20');await h.cycle();assert.equal(attempts,1);
+ h.advance('12:15:31');await h.cycle();assert.equal(attempts,2);assert.ok(h.state.completed['2026-11-16:noon']);assert.equal(h.starts,0);
+});
 test('opening the computer at 09:55 or later starts on the first resumed cycle and survives restart without duplication',async()=>{
  for(const openAt of ['09:55:00','09:56:00','09:58:00','09:59:00','09:59:58','10:00:00']){
   const h=harness('09:54:58');await h.cycle();assert.equal(h.starts,0);

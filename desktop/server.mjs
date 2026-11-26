@@ -5,6 +5,7 @@ import {createLocalRecorder} from './local-recorder.mjs';
 import {createLocalUploads} from './local-uploads.mjs';
 import {createClassroom} from './classroom.mjs';
 import {createNoteSync} from './note-sync.mjs';
+import {showEndReminder} from './end-reminder.mjs';
 import {createRecordingDeletion} from './recording-deletion.mjs';
 import {spawn} from 'node:child_process';
 import {DEFAULT_NAMING,reconcileSavedRecordings,prepareTitle,canAutoApply,applyTitle,validateCandidate,savedURL} from './naming.mjs';
@@ -83,9 +84,9 @@ async function startRecording(attemptId=null,deadline=Infinity){
 }
 async function verifyScheduledRecording(){return recorder.health();}
 async function reminder(){
- await log('已提醒手动结束本地录音；未执行停止操作');
- await notify('下课了，现在结束录音吗？','请打开听课搭子，点击「结束并上传」；还在上课可继续录制。');
- return {message:'已发送下课提醒，请在听课搭子手动结束并上传'};
+ await showEndReminder({onError:error=>log('下课提醒窗口发生错误：'+error.message,'warning').catch(()=>{})});
+ await log('已请求显示下课提醒窗口，请手动结束录音');
+ return {message:'已请求显示下课提醒，请在听课搭子手动结束并上传'};
 }
 let ticking=false;
 async function tick(){
@@ -138,7 +139,7 @@ const server=http.createServer(async(req,res)=>{
  try{
   if(req.headers.host!==`${HOST}:${PORT}`)return respond(res,403,{error:'invalid host'});
   const url=new URL(req.url,origin);
-  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.16.2',local:{...await recorder.status(),uploads:await uploads.status()},runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
+  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.16.3',local:{...await recorder.status(),uploads:await uploads.status()},runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
   if(req.method==='GET' && /^\/api\/local-audio\/[a-zA-Z0-9-]{1,80}$/.test(url.pathname)){
    if(url.searchParams.get('token')!==token)return respond(res,403,{error:'下载权限无效，请刷新页面'});
    const id=url.pathname.split('/').at(-1),record=(await recorder.records()).find(r=>r.id===id&&['saved','interrupted'].includes(r.status));
