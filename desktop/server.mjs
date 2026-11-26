@@ -138,7 +138,7 @@ const server=http.createServer(async(req,res)=>{
  try{
   if(req.headers.host!==`${HOST}:${PORT}`)return respond(res,403,{error:'invalid host'});
   const url=new URL(req.url,origin);
-  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.16.1',local:{...await recorder.status(),uploads:await uploads.status()},runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
+  if(req.method==='GET' && url.pathname==='/api/status')return respond(res,200,{...state,busy,keepAwake:!!awakeProcess,keepDisplayAwake:!!displayProcess,next:nextEvent(state.settings),version:'0.16.2',local:{...await recorder.status(),uploads:await uploads.status()},runtime:{...runtime,busy,ticking,namingBusy,libraryBusy:library.busy,detailBusy:details.busy},sessions:dailyRuns(state.settings,state),mode:'desktop',preview});
   if(req.method==='GET' && /^\/api\/local-audio\/[a-zA-Z0-9-]{1,80}$/.test(url.pathname)){
    if(url.searchParams.get('token')!==token)return respond(res,403,{error:'下载权限无效，请刷新页面'});
    const id=url.pathname.split('/').at(-1),record=(await recorder.records()).find(r=>r.id===id&&['saved','interrupted'].includes(r.status));

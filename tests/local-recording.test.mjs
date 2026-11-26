@@ -17,11 +17,19 @@ test('upload keeps original date and only accepts local WAV actions and trusted 
 test('upload sync failure resumes the same remote record after service restart and keeps local bytes',async t=>{
  const f=await fixture(t),calls=[];let exists=false,failSync=true,uploads=0;
  const request=async b=>{calls.push(b.action);if(b.action==='getTransList')return {data:[]};if(b.action==='generatePutLink')return {data:structuredClone(ticket)};if(failSync)throw Error('听悟：暂时无法确认');return {success:true};};
- const makeClient=()=>({head:async()=>{if(!exists)throw Object.assign(Error(),{status:404});return {res:{headers:{'content-length':'64044'}}};},multipartUpload:async(_key,_file,o)=>{uploads++;await o.progress(.5,{uploadId:'same-upload',doneParts:[{number:1,etag:'one'}],file:f.file});exists=true;return {res:{status:200}};}});
+ const makeClient=()=>({head:async()=>{if(!exists)throw Object.assign(Error(),{status:404});return {res:{headers:{'content-length':'64044'}}};},multipartUpload:async(_key,_file,o)=>{assert.equal(o.parallel,4);assert.equal(o.partSize,5*1024*1024);uploads++;await o.progress(.5,{uploadId:'same-upload',doneParts:[{number:1,etag:'one'}],file:f.file});exists=true;return {res:{status:200}};}});
  let queue=createLocalUploads({...f,request,makeClient});await queue.tick();assert.equal((await queue.status()).jobs[0].status,'retrying');
  const raw=JSON.parse(await readFile(path.join(f.dir,'uploads.json'),'utf8'));assert.equal(raw[id].stage,'notify');raw[id].nextAttemptAt=0;await atomicJSON(path.join(f.dir,'uploads.json'),raw);
  failSync=false;queue=createLocalUploads({...f,request,makeClient});await queue.tick();assert.equal((await queue.status()).jobs[0].status,'uploaded');assert.equal(calls.filter(x=>x==='generatePutLink').length,1);assert.equal(uploads,1);assert.deepEqual(await readFile(f.file),wav());assert.equal(JSON.stringify(await queue.status()).includes('test-secret'),false);assert.equal((await readFile(path.join(f.dir,'uploads.json'),'utf8')).includes('test-secret'),false);
 });
 test('ambiguous create timeout pauses instead of creating duplicate recordings automatically',async t=>{const f=await fixture(t);let creates=0;const q=createLocalUploads({...f,request:async b=>{if(b.action==='getTransList')return {};creates++;throw Error('听悟请求超时');}});await q.tick();await q.tick();assert.equal(creates,1);assert.equal((await q.status()).jobs[0].status,'attention');assert.deepEqual(await readFile(f.file),wav());});
 test('missing login retries without entering ambiguous creation state',async t=>{const f=await fixture(t);const q=createLocalUploads({...f,request:async()=>{throw Error('请先登录听悟');}});await q.tick();assert.equal((await q.status()).jobs[0].status,'retrying');assert.equal(JSON.parse(await readFile(path.join(f.dir,'uploads.json'),'utf8'))[id].stage,'pending');});
+test('missing Tingwu tab retries promptly without creating a duplicate cloud task',async t=>{
+ const f=await fixture(t);let creates=0;
+ for(let i=0;i<4;i++){
+  const q=createLocalUploads({...f,request:async body=>{if(body.action==='getTransList')throw Error('请保留一个已登录的听悟标签页，后台命名会自动恢复');creates++;}});
+  const before=Date.now();await q.tick();const job=JSON.parse(await readFile(path.join(f.dir,'uploads.json'),'utf8'))[id];
+  assert.equal(job.stage,'pending');assert.equal(creates,0);assert.ok(job.nextAttemptAt-before<=31000);job.nextAttemptAt=0;await atomicJSON(path.join(f.dir,'uploads.json'),{[id]:job});
+ }
+});
 test('stale helper cannot report a recording as live and disabled preview never launches native helper',async t=>{const f=await fixture(t);let launches=0;const q=createLocalRecorder({dir:f.dir,enabled:false,launch:async()=>launches++});await assert.rejects(q.start());assert.equal(launches,0);await atomicJSON(path.join(f.dir,'status.json'),{recording:true,updatedAt:Date.now()-20000});const live=createLocalRecorder({dir:f.dir,enabled:true});assert.equal((await live.status()).recording,false);assert.equal((await live.status()).stale,true);});

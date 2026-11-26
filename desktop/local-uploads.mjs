@@ -53,7 +53,7 @@ export function createLocalUploads({dir,recorder,request=requestTingwu,makeClien
    const options=clientOptions(job.ticket),client=makeClient(options),key=job.ticket.sts.fileKey;
    // Tingwu grants write-only OSS credentials: HEAD/GetObject is forbidden.
    // Keep a checkpoint and accept only the upload service's success response.
-   const result=await client.multipartUpload(key,record.file,{mime:'audio/wav',parallel:2,partSize:5*1024*1024,checkpoint:job.checkpoint,progress:async(p,checkpoint)=>{job.progress=p;if(checkpoint)job.checkpoint=checkpoint;await save();}});
+   const result=await client.multipartUpload(key,record.file,{mime:'audio/wav',parallel:4,partSize:5*1024*1024,checkpoint:job.checkpoint,progress:async(p,checkpoint)=>{job.progress=p;if(checkpoint)job.checkpoint=checkpoint;await save();}});
    if(result?.res?.status!==200)throw Error('远端上传结果未确认，本地音频保留');
    job.stage='notify';job.progress=1;delete job.checkpoint;await save();
   }
@@ -90,7 +90,8 @@ export function createLocalUploads({dir,recorder,request=requestTingwu,makeClien
     job.diagnostic=safeUploadDiagnostic(error,job.ticket);
     if(error.code==='NoSuchUpload')job.error='远端分片上传结果未确认，请检查听悟记录后处理，本地音频已保留';
     job.status=job.stage==='creating'||/InvalidAccessKeyId|SecurityTokenExpired|AccessDenied|NoSuchUpload/.test(error.code||'')?'attention':'retrying';
-    job.nextAttemptAt=Date.now()+Math.min(900000,30000*2**Math.min(job.attempts-1,5));await save();await log(job.error,'warning');
+    const missingTab=job.stage==='pending'&&error.message==='请保留一个已登录的听悟标签页，后台命名会自动恢复';
+    job.nextAttemptAt=Date.now()+(missingTab?30000:Math.min(900000,30000*2**Math.min(job.attempts-1,5)));await save();await log(job.error,'warning');
    }
   }finally{busy=false;}
  }
